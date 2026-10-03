@@ -25,6 +25,21 @@ export interface NewsItem {
   views?: number;
 }
 
+export interface Album {
+  id: string;
+  title: string;
+  artist: string;
+  type: 'Álbum' | 'EP' | 'Mixtape';
+  category: string;
+  cover: string;
+  downloadUrl: string;
+  date: number;
+  tracksCount: number;
+  tracklist?: string[];
+  description?: string;
+  downloads?: number;
+}
+
 export interface SiteConfig {
   whatsapp: string;
   youtube: string;

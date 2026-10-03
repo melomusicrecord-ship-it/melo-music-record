@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "Song": {
+      "title": "Song",
+      "description": "Uma faixa musical disponível na plataforma para streaming e download.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "artist": { "type": "string", "maxLength": 150 },
+        "category": { "type": "string", "maxLength": 60 },
+        "cover": { "type": "string", "maxLength": 1500 },
+        "link": { "type": "string", "maxLength": 1500 },
+        "streamUrl": { "type": "string", "maxLength": 1500 },
+        "lyrics": { "type": "string", "maxLength": 15000 },
+        "date": { "type": "number" },
+        "plays": { "type": "number" },
+        "downloads": { "type": "number" }
+      },
+      "required": ["title", "link"]
+    },
+    "Album": {
+      "title": "Album",
+      "description": "Um álbum, EP ou mixtape completo com lista de faixas.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "artist": { "type": "string", "maxLength": 150 },
+        "type": { "type": "string", "maxLength": 50 },
+        "category": { "type": "string", "maxLength": 60 },
+        "cover": { "type": "string", "maxLength": 1500 },
+        "downloadUrl": { "type": "string", "maxLength": 1500 },
+        "date": { "type": "number" },
+        "tracksCount": { "type": "number" },
+        "description": { "type": "string", "maxLength": 3000 },
+        "downloads": { "type": "number" }
+      },
+      "required": ["title", "downloadUrl"]
+    },
+    "NewsItem": {
+      "title": "NewsItem",
+      "description": "Artigo ou notícia do blog de música.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 250 },
+        "type": { "type": "string", "maxLength": 50 },
+        "image": { "type": "string", "maxLength": 1500 },
+        "content": { "type": "string", "maxLength": 20000 },
+        "date": { "type": "number" },
+        "views": { "type": "number" }
+      },
+      "required": ["title", "content"]
+    },
+    "SiteConfig": {
+      "title": "SiteConfig",
+      "description": "Configurações gerais e contactos do estúdio.",
+      "type": "object",
+      "properties": {
+        "whatsapp": { "type": "string", "maxLength": 50 },
+        "youtube": { "type": "string", "maxLength": 500 },
+        "email": { "type": "string", "maxLength": 150 },
+        "facebook": { "type": "string", "maxLength": 500 },
+        "instagram": { "type": "string", "maxLength": 500 },
+        "twitter": { "type": "string", "maxLength": 500 },
+        "about": { "type": "string", "maxLength": 5000 },
+        "location": { "type": "string", "maxLength": 150 },
+        "masterPin": { "type": "string", "maxLength": 50 },
+        "twoFactorEnabled": { "type": "boolean" },
+        "webhookUrl": { "type": "string", "maxLength": 1000 },
+        "apiKey": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "Subscriber": {
+      "title": "Subscriber",
+      "description": "Inscrito VIP na newsletter.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 150 },
+        "date": { "type": "number" }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "/songs/{songId}": {
+      "schema": "Song",
+      "description": "Coleção de músicas publicadas."
+    },
+    "/albums/{albumId}": {
+      "schema": "Album",
+      "description": "Coleção de álbuns e EPs."
+    },
+    "/news/{newsId}": {
+      "schema": "NewsItem",
+      "description": "Coleção de notícias e comunicados."
+    },
+    "/config/{configId}": {
+      "schema": "SiteConfig",
+      "description": "Configuração global do site."
+    },
+    "/subscribers/{subId}": {
+      "schema": "Subscriber",
+      "description": "Lista de inscritos na newsletter."
+    }
+  }
+}

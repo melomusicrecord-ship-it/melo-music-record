@@ -1,27 +1,40 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Flame,
-  Radio,
   SlidersHorizontal,
-  X,
   Music2,
-  Headphones,
+  Disc3,
   Search,
   Sparkles,
-  Shield,
-  Layers
+  Layers,
+  ChevronRight
 } from 'lucide-react';
-import { Song, NewsItem, SiteConfig, Language } from './types';
+import { Song, Album, NewsItem, SiteConfig, Language } from './types';
 import { translations } from './translations';
-import { DEFAULT_CONFIG, DEFAULT_CATEGORIES, getDemoSongs, getDemoNews } from './services/defaultData';
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_CATEGORIES,
+  getDemoSongs,
+  getDemoAlbums,
+  getDemoNews
+} from './services/defaultData';
 import { smartCache } from './services/cacheService';
 import { audioPlayer, PlayerState } from './services/audioPlayerService';
-import { isToday, formatDate } from './utils/helpers';
+import {
+  testFirestoreConnection,
+  getSongsFromFirestore,
+  getAlbumsFromFirestore,
+  getNewsFromFirestore,
+  getConfigFromFirestore
+} from './services/firebase';
+import { isToday } from './utils/helpers';
 import { Navbar } from './components/Navbar';
 import { SongCard } from './components/SongCard';
+import { AlbumCard } from './components/AlbumCard';
 import { NewsCard } from './components/NewsCard';
 import { Sidebar } from './components/Sidebar';
 import { SongDetailModal } from './components/SongDetailModal';
+import { AlbumDetailModal } from './components/AlbumDetailModal';
 import { NewsDetailModal } from './components/NewsDetailModal';
 import { AboutModal } from './components/AboutModal';
 import { AdminModal } from './components/AdminModal';
@@ -37,6 +50,16 @@ export default function App() {
       if (saved) return JSON.parse(saved);
     } catch {}
     return getDemoSongs();
+  });
+
+  const [albums, setAlbums] = useState<Album[]>(() => {
+    const cached = smartCache.get<Album[]>('albums_list');
+    if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+    try {
+      const saved = localStorage.getItem('melo_albums_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return getDemoAlbums();
   });
 
   const [news, setNews] = useState<NewsItem[]>(() => {
@@ -71,6 +94,8 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<string>('Todas');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showOnlyNews, setShowOnlyNews] = useState<boolean>(false);
+  const [showOnlyAlbums, setShowOnlyAlbums] = useState<boolean>(false);
+
   const [lang, setLang] = useState<Language>(() => {
     try {
       const saved = localStorage.getItem('mmr_lang');
@@ -92,6 +117,7 @@ export default function App() {
 
   // --- Modals & Player State ---
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
+  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -114,6 +140,13 @@ export default function App() {
       smartCache.set('songs_list', songs);
     } catch {}
   }, [songs]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('melo_albums_v1', JSON.stringify(albums));
+      smartCache.set('albums_list', albums);
+    } catch {}
+  }, [albums]);
 
   useEffect(() => {
     try {
@@ -157,9 +190,48 @@ export default function App() {
   useEffect(() => {
     const urls = [
       ...songs.map((s) => s.cover).filter(Boolean),
+      ...albums.map((a) => a.cover).filter(Boolean),
       ...news.map((n) => n.image).filter(Boolean)
     ];
     smartCache.preloadAssets(urls);
+  }, []);
+
+  // --- Initialize Firestore Connection & Real-Time / Cloud Sync ---
+  useEffect(() => {
+    testFirestoreConnection();
+
+    let isMounted = true;
+    async function syncFirestoreData() {
+      try {
+        const [cloudSongs, cloudAlbums, cloudNews, cloudConfig] = await Promise.allSettled([
+          getSongsFromFirestore(),
+          getAlbumsFromFirestore(),
+          getNewsFromFirestore(),
+          getConfigFromFirestore()
+        ]);
+        if (!isMounted) return;
+
+        if (cloudSongs.status === 'fulfilled' && cloudSongs.value.length > 0) {
+          setSongs(cloudSongs.value);
+        }
+        if (cloudAlbums.status === 'fulfilled' && cloudAlbums.value.length > 0) {
+          setAlbums(cloudAlbums.value);
+        }
+        if (cloudNews.status === 'fulfilled' && cloudNews.value.length > 0) {
+          setNews(cloudNews.value);
+        }
+        if (cloudConfig.status === 'fulfilled' && cloudConfig.value) {
+          setConfig(cloudConfig.value);
+        }
+      } catch (err) {
+        console.warn('Firestore initial sync notice:', err);
+      }
+    }
+    syncFirestoreData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // --- Dynamic Categories ---
@@ -169,8 +241,11 @@ export default function App() {
     songs.forEach((s) => {
       if (s.category) set.add(s.category);
     });
+    albums.forEach((a) => {
+      if (a.category) set.add(a.category);
+    });
     return Array.from(set);
-  }, [customCategories, songs]);
+  }, [customCategories, songs, albums]);
 
   const handleAddCategory = (newCat: string) => {
     if (!customCategories.includes(newCat)) {
@@ -194,20 +269,49 @@ export default function App() {
       .sort((a, b) => (b.date || 0) - (a.date || 0));
   }, [songs, activeCategory, searchQuery]);
 
-  // Today songs vs Previous
+  // --- Filtered Albums ---
+  const filteredAlbums = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return albums
+      .filter((a) => activeCategory === 'Todas' || a.category === activeCategory)
+      .filter((a) => {
+        if (!q) return true;
+        return (
+          (a.title || '').toLowerCase().includes(q) ||
+          (a.artist || '').toLowerCase().includes(q) ||
+          (a.category || '').toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => (b.date || 0) - (a.date || 0));
+  }, [albums, activeCategory, searchQuery]);
+
+  // Today releases count
   const todaySongs = useMemo(() => filteredSongs.filter((s) => isToday(s.date)), [filteredSongs]);
+  const todayAlbums = useMemo(() => filteredAlbums.filter((a) => isToday(a.date)), [filteredAlbums]);
   const olderSongs = useMemo(() => {
     const todayIds = new Set(todaySongs.map((s) => s.id));
     return filteredSongs.filter((s) => !todayIds.has(s.id));
   }, [filteredSongs, todaySongs]);
 
-  // Today news
   const todayNewsCount = useMemo(() => news.filter((n) => isToday(n.date)).length, [news]);
-  const totalTodayReleases = todaySongs.length + todayNewsCount;
+  const totalTodayReleases = todaySongs.length + todayAlbums.length + todayNewsCount;
 
-  // Popular songs for sidebar
-  const popularSongs = useMemo(() => {
-    return [...songs].sort((a, b) => ((b.plays || 0) + (b.downloads || 0)) - ((a.plays || 0) + (a.downloads || 0)));
+  // TOP 10 Songs (for sidebar)
+  const top10Songs = useMemo(() => {
+    return [...songs]
+      .sort((a, b) => ((b.plays || 0) + (b.downloads || 0)) - ((a.plays || 0) + (a.downloads || 0)))
+      .slice(0, 10);
+  }, [songs]);
+
+  // Counts of songs per category for the sidebar
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    songs.forEach((s) => {
+      if (s.category) {
+        counts[s.category] = (counts[s.category] || 0) + 1;
+      }
+    });
+    return counts;
   }, [songs]);
 
   // News list to display
@@ -235,19 +339,31 @@ export default function App() {
         onSelectCategory={(cat) => {
           setActiveCategory(cat);
           setShowOnlyNews(false);
+          setShowOnlyAlbums(false);
         }}
         searchQuery={searchQuery}
         onSearchChange={(q) => {
           setSearchQuery(q);
           setShowOnlyNews(false);
+          setShowOnlyAlbums(false);
         }}
         onOpenAbout={() => setIsAboutOpen(true)}
         onOpenNewsOnly={() => {
           setShowOnlyNews(true);
+          setShowOnlyAlbums(false);
           setActiveCategory('Todas');
           setSearchQuery('');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
+        onOpenAlbumsOnly={() => {
+          setShowOnlyAlbums(true);
+          setShowOnlyNews(false);
+          setActiveCategory('Todas');
+          setSearchQuery('');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        isAlbumsActive={showOnlyAlbums}
+        isNewsActive={showOnlyNews}
         lang={lang}
         onSelectLanguage={setLang}
         isDark={isDark}
@@ -256,42 +372,48 @@ export default function App() {
       />
 
       {/* Main Layout Grid */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-5">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_310px] gap-5 sm:gap-7">
           {/* Main Feed Content Area */}
-          <div className="space-y-6 min-w-0">
-            {/* "TUDO DE HOJE" BANNER */}
-            <div className="bg-gradient-to-r from-red-950/40 via-slate-900 to-sky-950/40 border-l-4 border-l-red-600 border border-slate-800 rounded-xl p-4 sm:p-5 flex items-center justify-between flex-wrap gap-3 shadow-lg relative overflow-hidden">
-              <div className="flex items-center gap-3">
-                <span className="flex h-3 w-3 relative">
+          <div className="space-y-4 sm:space-y-5 min-w-0">
+            {/* "Tudo de Hoje" Banner */}
+            <div className="bg-gradient-to-r from-red-950/40 via-slate-900 to-sky-950/40 border-l-4 border-l-red-600 border border-slate-800 rounded-xl p-3.5 sm:p-4 flex items-center justify-between flex-wrap gap-2.5 shadow-lg relative overflow-hidden">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-2.5 w-2.5 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-600"></span>
                 </span>
                 <div>
-                  <h2 className="text-sm sm:text-base font-extrabold uppercase tracking-wider text-amber-300">
+                  <h2 className="text-xs sm:text-sm font-extrabold text-amber-300">
                     {t.today_banner_title}
                   </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5">
                     {totalTodayReleases > 0 ? t.today_banner_sub : t.today_empty_sub}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="px-3 py-1 rounded-full text-xs font-extrabold tracking-wider uppercase text-white bg-red-600 shadow-md shadow-red-950/60">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white bg-red-600 shadow-md shadow-red-950/60">
                   {totalTodayReleases} {t.today_badge}
                 </span>
               </div>
             </div>
 
-            {/* FILTER BAR (When searching or viewing a specific genre) */}
-            {(activeCategory !== 'Todas' || searchQuery || showOnlyNews) && (
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs animate-in fade-in">
-                <div className="flex items-center gap-2 text-slate-300">
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+            {/* Filter Bar (When searching or filtered) */}
+            {(activeCategory !== 'Todas' || searchQuery || showOnlyNews || showOnlyAlbums) && (
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-3.5 py-2 flex items-center justify-between text-[11px] animate-in fade-in">
+                <div className="flex items-center gap-1.5 text-slate-300">
+                  <SlidersHorizontal className="w-3 h-3 text-amber-400" />
                   <span>{t.showing_filter}</span>
-                  <strong className="text-amber-400 uppercase font-bold">
-                    {showOnlyNews ? 'NOTÍCIAS' : activeCategory !== 'Todas' ? activeCategory : `"${searchQuery}"`}
+                  <strong className="text-amber-400 font-bold">
+                    {showOnlyAlbums
+                      ? 'Álbum e EP'
+                      : showOnlyNews
+                      ? 'Notícias'
+                      : activeCategory !== 'Todas'
+                      ? activeCategory
+                      : `"${searchQuery}"`}
                   </strong>
                 </div>
                 <button
@@ -299,28 +421,55 @@ export default function App() {
                     setActiveCategory('Todas');
                     setSearchQuery('');
                     setShowOnlyNews(false);
+                    setShowOnlyAlbums(false);
                   }}
-                  className="text-xs font-semibold text-sky-400 hover:text-amber-300 underline transition-colors"
+                  className="text-[11px] font-semibold text-sky-400 hover:text-amber-300 underline transition-colors"
                 >
                   {t.show_all}
                 </button>
               </div>
             )}
 
-            {/* NEWS SECTION ("News Hoje & Destaques") */}
-            {newsToDisplay.length > 0 && !searchQuery && (
+            {/* ÁLBUNS & EPS SECTION */}
+            {(showOnlyAlbums || (!showOnlyNews && !searchQuery && filteredAlbums.length > 0)) && (
               <section className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                    <span className="w-1 h-3.5 rounded bg-red-600 inline-block"></span>
+                <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                  <h3 className="text-xs sm:text-sm font-extrabold text-amber-400 flex items-center gap-1.5">
+                    <Disc3 className="w-3.5 h-3.5 text-red-500" />
+                    <span>{t.albums_section_title}</span>
+                  </h3>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {filteredAlbums.length} projetos
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+                  {filteredAlbums.map((album) => (
+                    <AlbumCard
+                      key={album.id}
+                      album={album}
+                      onOpenDetails={setSelectedAlbum}
+                      lang={lang}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* NEWS SECTION ("News Hoje & Destaques") */}
+            {(showOnlyNews || (activeCategory === 'Todas' && !searchQuery && !showOnlyAlbums && newsToDisplay.length > 0)) && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                  <h3 className="text-xs sm:text-sm font-extrabold text-amber-400 flex items-center gap-1.5">
+                    <span className="w-1 h-3 rounded bg-red-600 inline-block"></span>
                     <span>{t.news_section_title}</span>
                   </h3>
-                  <span className="text-[11px] font-mono text-slate-400">
+                  <span className="text-[10px] font-mono text-slate-400">
                     {newsToDisplay.length} artigos
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   {newsToDisplay.map((item) => (
                     <NewsCard
                       key={item.id}
@@ -333,29 +482,31 @@ export default function App() {
               </section>
             )}
 
-            {/* TRACKS LIST SECTION */}
-            {!showOnlyNews && (
-              <section className="space-y-4 pt-2">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                    <span className="w-1 h-3.5 rounded bg-red-600 inline-block"></span>
+            {/* TRACKS / INSTRUMENTAIS LIST SECTION */}
+            {!showOnlyNews && !showOnlyAlbums && (
+              <section className="space-y-3 pt-1">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                  <h3 className="text-xs sm:text-sm font-extrabold text-amber-400 flex items-center gap-1.5">
+                    <span className="w-1 h-3 rounded bg-red-600 inline-block"></span>
                     <span>
                       {activeCategory === 'Todas' && !searchQuery
                         ? t.songs_section_today
+                        : activeCategory === 'Instrumentais'
+                        ? 'Instrumentais & Beats Exclusivos'
                         : `${t.songs}: ${activeCategory}`}
                     </span>
                   </h3>
-                  <span className="text-[11px] font-mono text-slate-400">
-                    {filteredSongs.length} músicas
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {filteredSongs.length} {activeCategory === 'Instrumentais' ? 'instrumentais' : 'músicas'}
                   </span>
                 </div>
 
                 {filteredSongs.length === 0 ? (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 sm:p-12 text-center text-slate-400 space-y-3">
-                    <div className="w-14 h-14 rounded-full bg-slate-800/80 text-slate-500 mx-auto flex items-center justify-center">
-                      <Music2 className="w-7 h-7" />
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 sm:p-10 text-center text-slate-400 space-y-2.5">
+                    <div className="w-12 h-12 rounded-full bg-slate-800/80 text-slate-500 mx-auto flex items-center justify-center">
+                      <Music2 className="w-6 h-6" />
                     </div>
-                    <h4 className="text-base font-bold text-white">
+                    <h4 className="text-sm font-bold text-white">
                       {t.no_results_title}
                     </h4>
                     <p className="text-xs text-slate-400 max-w-sm mx-auto">
@@ -366,13 +517,13 @@ export default function App() {
                         setActiveCategory('Todas');
                         setSearchQuery('');
                       }}
-                      className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md transition-colors"
+                      className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md transition-colors"
                     >
                       {t.show_all}
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {/* Today Tracks */}
                     {todaySongs.map((song) => (
                       <SongCard
@@ -387,9 +538,9 @@ export default function App() {
 
                     {/* Separator if both exist */}
                     {todaySongs.length > 0 && olderSongs.length > 0 && (
-                      <div className="pt-4 pb-1">
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                          <span className="w-1 h-3 rounded bg-sky-600 inline-block"></span>
+                      <div className="pt-3 pb-0.5">
+                        <h4 className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                          <span className="w-1 h-2.5 rounded bg-sky-600 inline-block"></span>
                           <span>{t.songs_section_earlier}</span>
                         </h4>
                       </div>
@@ -412,12 +563,31 @@ export default function App() {
             )}
           </div>
 
-          {/* Sidebar Area */}
+          {/* Sidebar Area with Top 10 and Categories */}
           <div className="w-full">
             <Sidebar
               config={config}
-              popularSongs={popularSongs}
+              top10Songs={top10Songs}
               onSelectSong={setSelectedSong}
+              categories={allCategories}
+              activeCategory={activeCategory}
+              onSelectCategory={(cat) => {
+                setActiveCategory(cat);
+                setShowOnlyAlbums(false);
+                setShowOnlyNews(false);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onOpenAlbumsOnly={() => {
+                setShowOnlyAlbums(true);
+                setShowOnlyNews(false);
+                setActiveCategory('Todas');
+                setSearchQuery('');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              isAlbumsActive={showOnlyAlbums}
+              categoryCounts={categoryCounts}
+              totalAlbumsCount={albums.length}
+              totalSongsCount={songs.length}
               lang={lang}
             />
           </div>
@@ -425,15 +595,15 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/80 bg-slate-950 py-8 px-4 text-center text-xs text-slate-500 mt-12">
-        <div className="max-w-7xl mx-auto space-y-3">
-          <div className="flex items-center justify-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-red-600/20 text-red-500 border border-red-500/30 flex items-center justify-center">
-              <Music2 className="w-3.5 h-3.5" />
+      <footer className="border-t border-slate-800/80 bg-slate-950 py-6 px-4 text-center text-[11px] text-slate-500 mt-10">
+        <div className="max-w-7xl mx-auto space-y-2">
+          <div className="flex items-center justify-center gap-1.5">
+            <div className="w-5 h-5 rounded-md bg-red-600/20 text-red-500 border border-red-500/30 flex items-center justify-center">
+              <Music2 className="w-3 h-3" />
             </div>
             <span className="font-extrabold text-slate-200">Melo Music Record</span>
             <span className="text-amber-400">·</span>
-            <span className="text-slate-400">{t.brand_sub}</span>
+            <span className="text-slate-400 capitalize">{t.brand_sub}</span>
           </div>
 
           <p>
@@ -442,11 +612,7 @@ export default function App() {
         </div>
       </footer>
 
-      {/* ========================================================
-          DISCREET ADMIN ACCESS BUTTON (Floating dot)
-          The user explicitly highlighted:
-          "menos o botão administrador discreto esta melhor o resto tu sabes com fazer"
-      ======================================================== */}
+      {/* Discreet Administrator Trigger Dot */}
       <button
         onClick={() => setIsAdminOpen(true)}
         aria-label="Acesso Restrito"
@@ -472,6 +638,13 @@ export default function App() {
         lang={lang}
       />
 
+      {/* Album Details Modal */}
+      <AlbumDetailModal
+        album={selectedAlbum}
+        onClose={() => setSelectedAlbum(null)}
+        lang={lang}
+      />
+
       {/* News Details Modal */}
       <NewsDetailModal
         news={selectedNews}
@@ -487,15 +660,17 @@ export default function App() {
         lang={lang}
       />
 
-      {/* Admin Panel Modal with 2FA, Analytics, Cache & CRUD */}
+      {/* Admin Panel Modal with 2FA, Albums, Analytics, Cache & CRUD */}
       <AdminModal
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
         songs={songs}
+        albums={albums}
         news={news}
         config={config}
         categories={allCategories}
         onSaveSongs={setSongs}
+        onSaveAlbums={setAlbums}
         onSaveNews={setNews}
         onSaveConfig={setConfig}
         onAddCategory={handleAddCategory}

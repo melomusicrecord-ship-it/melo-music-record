@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSong(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.link is string && data.link.size() > 0 && data.link.size() <= 1500
+        && (!('artist' in data) || (data.artist is string && data.artist.size() <= 150))
+        && (!('category' in data) || (data.category is string && data.category.size() <= 60))
+        && (!('cover' in data) || (data.cover is string && data.cover.size() <= 1500))
+        && (!('lyrics' in data) || (data.lyrics is string && data.lyrics.size() <= 15000));
+    }
+
+    function isValidAlbum(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.downloadUrl is string && data.downloadUrl.size() > 0 && data.downloadUrl.size() <= 1500
+        && (!('artist' in data) || (data.artist is string && data.artist.size() <= 150))
+        && (!('type' in data) || (data.type is string && data.type.size() <= 50))
+        && (!('category' in data) || (data.category is string && data.category.size() <= 60))
+        && (!('cover' in data) || (data.cover is string && data.cover.size() <= 1500))
+        && (!('description' in data) || (data.description is string && data.description.size() <= 3000));
+    }
+
+    function isValidNews(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() <= 250
+        && data.content is string && data.content.size() > 0 && data.content.size() <= 20000
+        && (!('type' in data) || (data.type is string && data.type.size() <= 50))
+        && (!('image' in data) || (data.image is string && data.image.size() <= 1500));
+    }
+
+    function isValidSubscriber(data) {
+      return data.email is string && data.email.size() > 3 && data.email.size() <= 150;
+    }
+
+    // Coleção de Músicas
+    match /songs/{songId} {
+      allow read: if true;
+      allow create, update: if isValidId(songId) && isValidSong(request.resource.data);
+      allow delete: if isValidId(songId);
+    }
+
+    // Coleção de Álbuns & EPs
+    match /albums/{albumId} {
+      allow read: if true;
+      allow create, update: if isValidId(albumId) && isValidAlbum(request.resource.data);
+      allow delete: if isValidId(albumId);
+    }
+
+    // Coleção de Notícias
+    match /news/{newsId} {
+      allow read: if true;
+      allow create, update: if isValidId(newsId) && isValidNews(request.resource.data);
+      allow delete: if isValidId(newsId);
+    }
+
+    // Configurações do Site
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isValidId(configId);
+    }
+
+    // Inscritos na Newsletter
+    match /subscribers/{subId} {
+      allow read: if true;
+      allow create: if isValidId(subId) && isValidSubscriber(request.resource.data);
+      allow update, delete: if isValidId(subId);
+    }
+  }
+}

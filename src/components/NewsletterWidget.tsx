@@ -5,6 +5,7 @@ import { Language, Subscriber } from '../types';
 import { translations } from '../translations';
 import { analyticsService } from '../services/analyticsService';
 import { smartCache } from '../services/cacheService';
+import { saveSubscriberToFirestore } from '../services/firebase';
 
 interface NewsletterWidgetProps {
   lang: Language;
@@ -45,6 +46,7 @@ export const NewsletterWidget: React.FC<NewsletterWidgetProps> = ({ lang }) => {
           existing.push(newSub);
           localStorage.setItem(key, JSON.stringify(existing));
           smartCache.set('subscribers_count', existing.length);
+          saveSubscriberToFirestore(clean).catch(console.error);
         }
       } catch {
         // Ignored

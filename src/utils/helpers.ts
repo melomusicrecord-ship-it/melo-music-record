@@ -95,3 +95,48 @@ export function normalizeUrl(url?: string): string {
   if (/^https?:\/\//i.test(u) || /^data:/i.test(u) || /^tel:/i.test(u) || /^mailto:/i.test(u)) return u;
   return 'https://' + u;
 }
+
+export interface WebSharePayload {
+  title: string;
+  text?: string;
+  url?: string;
+}
+
+/**
+ * Triggers native Web Share API on mobile & desktop browsers.
+ * Falls back to copying link to clipboard if unsupported or cancelled.
+ */
+export async function shareViaWebShare(payload: WebSharePayload): Promise<{ shared: boolean; method: 'web-share' | 'clipboard' | 'cancelled' }> {
+  const targetUrl = payload.url || (typeof window !== 'undefined' ? window.location.href : '');
+  const shareData: ShareData = {
+    title: payload.title,
+    text: payload.text || payload.title,
+    url: targetUrl
+  };
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      await navigator.share(shareData);
+      return { shared: true, method: 'web-share' };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return { shared: false, method: 'cancelled' };
+      }
+      console.warn('Web Share API error, using clipboard fallback:', err);
+    }
+  }
+
+  // Fallback to clipboard copy
+  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      const shareMessage = payload.text ? `${payload.text}\n${targetUrl}` : `${payload.title}\n${targetUrl}`;
+      await navigator.clipboard.writeText(shareMessage);
+      return { shared: true, method: 'clipboard' };
+    } catch (err) {
+      console.error('Clipboard copy error:', err);
+    }
+  }
+
+  return { shared: false, method: 'cancelled' };
+}
+
