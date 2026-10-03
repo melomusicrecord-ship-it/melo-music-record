@@ -1,0 +1,6 @@
+{
+  "name": "Melo Music Record — Plataforma Musical & Blog",
+  "description": "Plataforma oficial da Melo Music Record: lançamentos de músicas, notícias exclusivas, downloads ultrarrápidos, letras de músicas e streaming direto.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
