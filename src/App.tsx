@@ -9,11 +9,12 @@ import {
   Layers,
   ChevronRight
 } from 'lucide-react';
-import { Song, Album, NewsItem, SiteConfig, Language } from './types';
+import { Song, Album, NewsItem, SiteConfig, Language, CustomMenuItem } from './types';
 import { translations } from './translations';
 import {
   DEFAULT_CONFIG,
   DEFAULT_CATEGORIES,
+  DEFAULT_CUSTOM_MENUS,
   getDemoSongs,
   getDemoAlbums,
   getDemoNews
@@ -25,9 +26,10 @@ import {
   getSongsFromFirestore,
   getAlbumsFromFirestore,
   getNewsFromFirestore,
-  getConfigFromFirestore
+  getConfigFromFirestore,
+  getCustomMenusFromFirestore
 } from './services/firebase';
-import { isToday } from './utils/helpers';
+import { isToday, buildWhatsAppLink } from './utils/helpers';
 import { Navbar } from './components/Navbar';
 import { SongCard } from './components/SongCard';
 import { AlbumCard } from './components/AlbumCard';
@@ -39,17 +41,29 @@ import { NewsDetailModal } from './components/NewsDetailModal';
 import { AboutModal } from './components/AboutModal';
 import { AdminModal } from './components/AdminModal';
 import { AudioPlayerBar } from './components/AudioPlayerBar';
+import { CustomPageModal } from './components/CustomPageModal';
 
 export default function App() {
-  // --- Persistent State Initialization ---
+  // --- Persistent State Initialization (Demo songs removed so user starts clean) ---
   const [songs, setSongs] = useState<Song[]>(() => {
     const cached = smartCache.get<Song[]>('songs_list');
-    if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+    if (cached && Array.isArray(cached)) {
+      const realCached = cached.filter(
+        (s) => !s.id?.startsWith('song-') && !s.link?.includes('pixabay.com')
+      );
+      if (realCached.length > 0) return realCached;
+    }
     try {
       const saved = localStorage.getItem('melo_music_record_v5');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: Song[] = JSON.parse(saved);
+        const realSaved = parsed.filter(
+          (s) => !s.id?.startsWith('song-') && !s.link?.includes('pixabay.com')
+        );
+        return realSaved;
+      }
     } catch {}
-    return getDemoSongs();
+    return [];
   });
 
   const [albums, setAlbums] = useState<Album[]>(() => {
@@ -88,6 +102,28 @@ export default function App() {
       if (saved) return JSON.parse(saved);
     } catch {}
     return [];
+  });
+
+  const [customMenus, setCustomMenus] = useState<CustomMenuItem[]>(() => {
+    const cached = smartCache.get<CustomMenuItem[]>('custom_menus_list');
+    if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+    try {
+      const saved = localStorage.getItem('melo_custom_menus_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_CUSTOM_MENUS;
+  });
+
+  const [customPageModal, setCustomPageModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    content: string;
+    badge?: string;
+  }>({
+    isOpen: false,
+    title: '',
+    content: '',
+    badge: undefined
   });
 
   // --- UI & Preferences State ---
@@ -170,6 +206,13 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem('melo_custom_menus_v1', JSON.stringify(customMenus));
+      smartCache.set('custom_menus_list', customMenus);
+    } catch {}
+  }, [customMenus]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem('mmr_lang', lang);
     } catch {}
   }, [lang]);
@@ -203,15 +246,17 @@ export default function App() {
     let isMounted = true;
     async function syncFirestoreData() {
       try {
-        const [cloudSongs, cloudAlbums, cloudNews, cloudConfig] = await Promise.allSettled([
-          getSongsFromFirestore(),
-          getAlbumsFromFirestore(),
-          getNewsFromFirestore(),
-          getConfigFromFirestore()
-        ]);
+        const [cloudSongs, cloudAlbums, cloudNews, cloudConfig, cloudMenus] =
+          await Promise.allSettled([
+            getSongsFromFirestore(),
+            getAlbumsFromFirestore(),
+            getNewsFromFirestore(),
+            getConfigFromFirestore(),
+            getCustomMenusFromFirestore()
+          ]);
         if (!isMounted) return;
 
-        if (cloudSongs.status === 'fulfilled' && cloudSongs.value.length > 0) {
+        if (cloudSongs.status === 'fulfilled') {
           setSongs(cloudSongs.value);
         }
         if (cloudAlbums.status === 'fulfilled' && cloudAlbums.value.length > 0) {
@@ -222,6 +267,9 @@ export default function App() {
         }
         if (cloudConfig.status === 'fulfilled' && cloudConfig.value) {
           setConfig(cloudConfig.value);
+        }
+        if (cloudMenus.status === 'fulfilled' && cloudMenus.value.length > 0) {
+          setCustomMenus(cloudMenus.value);
         }
       } catch (err) {
         console.warn('Firestore initial sync notice:', err);
@@ -369,6 +417,15 @@ export default function App() {
         isDark={isDark}
         onToggleTheme={() => setIsDark(!isDark)}
         isPlayingAudio={playerState.isPlaying}
+        customMenus={customMenus}
+        onOpenCustomPage={(title, content, badge) => {
+          setCustomPageModal({
+            isOpen: true,
+            title,
+            content,
+            badge
+          });
+        }}
       />
 
       {/* Main Layout Grid */}
@@ -502,26 +559,42 @@ export default function App() {
                 </div>
 
                 {filteredSongs.length === 0 ? (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 sm:p-10 text-center text-slate-400 space-y-2.5">
-                    <div className="w-12 h-12 rounded-full bg-slate-800/80 text-slate-500 mx-auto flex items-center justify-center">
-                      <Music2 className="w-6 h-6" />
+                  songs.length === 0 && !searchQuery ? (
+                    <div className="bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-12 text-center text-slate-300 space-y-4 shadow-xl">
+                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-600 via-red-700 to-sky-900 text-amber-200 mx-auto flex items-center justify-center shadow-lg shadow-red-950/60 border border-red-500/30">
+                        <Music2 className="w-7 h-7" />
+                      </div>
+                      <div className="space-y-1.5 max-w-md mx-auto">
+                        <h4 className="text-base sm:text-lg font-extrabold text-white">
+                          Biblioteca Pronta para Músicas Oficiais
+                        </h4>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          Todos os arquivos de demonstração foram limpos com sucesso. Novas músicas, beats e instrumentais oficiais estarão disponíveis em breve para reprodução e download direto.
+                        </p>
+                      </div>
                     </div>
-                    <h4 className="text-sm font-bold text-white">
-                      {t.no_results_title}
-                    </h4>
-                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                      {t.no_results_sub}
-                    </p>
-                    <button
-                      onClick={() => {
-                        setActiveCategory('Todas');
-                        setSearchQuery('');
-                      }}
-                      className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md transition-colors"
-                    >
-                      {t.show_all}
-                    </button>
-                  </div>
+                  ) : (
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 sm:p-10 text-center text-slate-400 space-y-2.5">
+                      <div className="w-12 h-12 rounded-full bg-slate-800/80 text-slate-500 mx-auto flex items-center justify-center">
+                        <Music2 className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-white">
+                        {t.no_results_title}
+                      </h4>
+                      <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                        {t.no_results_sub}
+                      </p>
+                      <button
+                        onClick={() => {
+                          setActiveCategory('Todas');
+                          setSearchQuery('');
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md transition-colors"
+                      >
+                        {t.show_all}
+                      </button>
+                    </div>
+                  )
                 ) : (
                   <div className="space-y-2.5">
                     {/* Today Tracks */}
@@ -669,12 +742,27 @@ export default function App() {
         news={news}
         config={config}
         categories={allCategories}
+        customMenus={customMenus}
         onSaveSongs={setSongs}
         onSaveAlbums={setAlbums}
         onSaveNews={setNews}
         onSaveConfig={setConfig}
+        onSaveCustomMenus={setCustomMenus}
         onAddCategory={handleAddCategory}
         lang={lang}
+      />
+
+      {/* Custom Information Page Modal (Dynamic Menus) */}
+      <CustomPageModal
+        isOpen={customPageModal.isOpen}
+        onClose={() => setCustomPageModal((prev) => ({ ...prev, isOpen: false }))}
+        title={customPageModal.title}
+        content={customPageModal.content}
+        badge={customPageModal.badge}
+        whatsappUrl={buildWhatsAppLink(
+          config.whatsapp,
+          `Olá Melo Music Record! Tenho interesse em: ${customPageModal.title}`
+        )}
       />
     </div>
   );

@@ -14,18 +14,64 @@
 
 /* Custom scrollbars */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(15, 23, 42, 0.8);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.4);
+  background: rgba(100, 116, 139, 0.5);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.8);
+}
+
+/* Specific always-visible horizontal scrollbar for admin menu tabs */
+.admin-tabs-scrollbar {
+  scrollbar-width: auto;
+  scrollbar-color: #ef4444 #0f172a;
+}
+.admin-tabs-scrollbar::-webkit-scrollbar {
+  height: 9px;
+  display: block;
+}
+.admin-tabs-scrollbar::-webkit-scrollbar-track {
+  background: #0f172a;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+}
+.admin-tabs-scrollbar::-webkit-scrollbar-thumb {
+  background: #dc2626;
+  border-radius: 6px;
+  border: 1px solid #ef4444;
+}
+.admin-tabs-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #ef4444;
+}
+
+/* Specific always-visible vertical scrollbar for admin modal content */
+.admin-content-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #ef4444 #0f172a;
+}
+.admin-content-scrollbar::-webkit-scrollbar {
+  width: 9px;
+  display: block;
+}
+.admin-content-scrollbar::-webkit-scrollbar-track {
+  background: #0f172a;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+}
+.admin-content-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(220, 38, 38, 0.8);
+  border-radius: 6px;
+  border: 1px solid #ef4444;
+}
+.admin-content-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #ef4444;
 }
 
 /* Equalizer bounce animation */

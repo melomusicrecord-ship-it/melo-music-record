@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Search,
   ChevronDown,
@@ -12,9 +12,11 @@ import {
   Disc3,
   Music2,
   SlidersHorizontal,
-  ChevronRight
+  ChevronRight,
+  Home,
+  Info
 } from 'lucide-react';
-import { Language } from '../types';
+import { Language, CustomMenuItem } from '../types';
 import { translations } from '../translations';
 import { buildWhatsAppLink } from '../utils/helpers';
 
@@ -36,6 +38,8 @@ interface NavbarProps {
   isDark: boolean;
   onToggleTheme: () => void;
   isPlayingAudio: boolean;
+  customMenus?: CustomMenuItem[];
+  onOpenCustomPage?: (title: string, content: string, badge?: string) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -54,21 +58,47 @@ export const Navbar: React.FC<NavbarProps> = ({
   lang,
   onSelectLanguage,
   isDark,
-  onToggleTheme
+  onToggleTheme,
+  customMenus = [],
+  onOpenCustomPage
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [activeCustomDropdownId, setActiveCustomDropdownId] = useState<string | null>(null);
   const [isLangOpen, setIsLangOpen] = useState(false);
   const [isMobileCatsOpen, setIsMobileCatsOpen] = useState(true);
+  const [expandedMobileCustomMenuId, setExpandedMobileCustomMenuId] = useState<string | null>(null);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
   const t = translations[lang] || translations.pt;
   const waUrl = buildWhatsAppLink(whatsappNumber, 'Olá Melo Music Record!');
 
-  // Filter out 'Instrumentais' from vocal music styles so it remains strictly a standalone top-level section
+  // Filter out 'Instrumentais' from musical genres so it remains strictly a standalone top-level section
   const musicStyles = categories.filter((c) => c.toLowerCase() !== 'instrumentais');
   const isInstrumentalsActive = activeCategory === 'Instrumentais' && !isAlbumsActive && !isNewsActive;
   const isMusicStyleActive = activeCategory !== 'Todas' && activeCategory !== 'Instrumentais' && !isAlbumsActive && !isNewsActive;
+
+  // Filter visible custom menus sorted by order
+  const visibleCustomMenus = customMenus
+    .filter((m) => m.visible !== false)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  // Lock body scroll and listen for Escape key when left drawer is open
+  useEffect(() => {
+    if (isMenuOpen) {
+      document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setIsMenuOpen(false);
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = '';
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    } else {
+      document.body.style.overflow = '';
+    }
+  }, [isMenuOpen]);
 
   const languages: { code: Language; label: string; flag: string }[] = [
     { code: 'pt', label: 'Português', flag: '🇦🇴' },
@@ -77,9 +107,22 @@ export const Navbar: React.FC<NavbarProps> = ({
     { code: 'es', label: 'Español', flag: '🇪🇸' }
   ];
 
+  const handleCustomMenuClick = (menu: CustomMenuItem) => {
+    if (menu.type === 'page') {
+      if (onOpenCustomPage) {
+        onOpenCustomPage(menu.label, menu.pageContent || '', menu.badge);
+      }
+    } else if (menu.type === 'category') {
+      onSelectCategory(menu.categoryFilter || menu.label);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (menu.type === 'link' && menu.url) {
+      window.open(menu.url, menu.target || '_blank');
+    }
+  };
+
   return (
     <header className="sticky top-0 z-50 w-full transition-colors duration-200">
-      {/* Top Bar with WhatsApp (Contact number removed as requested) */}
+      {/* 1. TOP STATUS BAR */}
       <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-sky-950/90 border-b border-slate-800/80 px-3 sm:px-4 py-1 text-[11px] text-slate-300">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 text-slate-400">
@@ -107,11 +150,21 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Main Navbar */}
+      {/* 2. MAIN NAVBAR (Single clean header bar: No duplicated menu below!) */}
       <nav className="bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-800 text-slate-100 shadow-xl">
-        <div className="max-w-7xl mx-auto px-2.5 sm:px-4 h-14 sm:h-15 flex items-center justify-between gap-2">
-          {/* Brand Logo */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="max-w-7xl mx-auto px-2.5 sm:px-4 h-14 sm:h-15 flex items-center justify-between gap-3">
+          {/* Brand Logo & Left Hamburger Button (3 Riscos) */}
+          <div className="flex items-center gap-2 sm:gap-2.5 flex-shrink-0">
+            {/* 3 Riscos Button on Left for Mobile & Tablet */}
+            <button
+              onClick={() => setIsMenuOpen(true)}
+              className="xl:hidden w-8 h-8 rounded-full bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white flex items-center justify-center flex-shrink-0 border border-slate-700 transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500/50"
+              aria-label="Abrir Menu Lateral"
+              title="Abrir Menu Lateral"
+            >
+              <Menu className="w-4 h-4 text-amber-400" />
+            </button>
+
             <button
               onClick={() => {
                 onSelectCategory('Todas');
@@ -133,8 +186,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
 
-          {/* Desktop Navigation Menu (Title Case with Initial Capitals, slightly smaller text for better fit) */}
+          {/* Desktop Navigation Links (Title Case with Initial Capitals) */}
           <ul className="hidden xl:flex items-center gap-1.5 text-[11px] font-semibold text-slate-300">
+            {/* 1. Início */}
             <li>
               <button
                 onClick={() => {
@@ -154,7 +208,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </li>
 
-            {/* Músicas Dropdown (Apenas Estilos Musicais, sem Instrumentais) */}
+            {/* 2. Músicas Dropdown (Apenas Estilos Musicais, sem Instrumentais) */}
             <li className="relative" onMouseLeave={() => setIsDropdownOpen(false)}>
               <button
                 onMouseEnter={() => setIsDropdownOpen(true)}
@@ -211,7 +265,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </li>
 
-            {/* Menu: Álbum e EP */}
+            {/* 3. Álbum e EP */}
             <li>
               <button
                 onClick={onOpenAlbumsOnly}
@@ -229,7 +283,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </li>
 
-            {/* Menu: Instrumentais (No top, fora das músicas por não ser estilo) */}
+            {/* 4. Instrumentais (No top, fora das músicas por não ser estilo) */}
             <li>
               <button
                 onClick={() => {
@@ -250,6 +304,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </li>
 
+            {/* 5. News Hoje */}
             <li>
               <button
                 onClick={onOpenNewsOnly}
@@ -263,6 +318,85 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </li>
 
+            {/* 6. Dynamic Custom Menus & Submenus */}
+            {visibleCustomMenus.map((cMenu) => {
+              const hasSubmenus = cMenu.type === 'dropdown' && cMenu.submenus && cMenu.submenus.length > 0;
+              const isCustomDropdownOpen = activeCustomDropdownId === cMenu.id;
+
+              if (hasSubmenus) {
+                return (
+                  <li
+                    key={cMenu.id}
+                    className="relative"
+                    onMouseLeave={() => setActiveCustomDropdownId(null)}
+                  >
+                    <button
+                      onMouseEnter={() => setActiveCustomDropdownId(cMenu.id)}
+                      onClick={() =>
+                        setActiveCustomDropdownId(isCustomDropdownOpen ? null : cMenu.id)
+                      }
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-full hover:text-amber-300 hover:bg-slate-800/60 transition-all border border-transparent"
+                    >
+                      <span>{cMenu.label}</span>
+                      {cMenu.badge && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-red-600 text-white font-bold">
+                          {cMenu.badge}
+                        </span>
+                      )}
+                      <ChevronDown className="w-3 h-3 text-slate-400" />
+                    </button>
+
+                    {isCustomDropdownOpen && (
+                      <div
+                        onMouseEnter={() => setActiveCustomDropdownId(cMenu.id)}
+                        className="absolute left-0 top-full mt-1 w-52 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl py-1.5 z-50 p-1"
+                      >
+                        {cMenu.submenus!.map((sub) => (
+                          <button
+                            key={sub.id}
+                            onClick={() => {
+                              setActiveCustomDropdownId(null);
+                              if (sub.type === 'page') {
+                                if (onOpenCustomPage) {
+                                  onOpenCustomPage(sub.label, sub.pageContent || '', cMenu.badge);
+                                }
+                              } else if (sub.type === 'category') {
+                                onSelectCategory(sub.categoryFilter || sub.label);
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              } else if (sub.type === 'link' && sub.url) {
+                                window.open(sub.url, sub.target || '_blank');
+                              }
+                            }}
+                            className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-300 hover:bg-slate-800 hover:text-amber-300 transition-colors flex items-center justify-between"
+                          >
+                            <span className="truncate">{sub.label}</span>
+                            <ChevronRight className="w-3 h-3 text-slate-500" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              }
+
+              return (
+                <li key={cMenu.id}>
+                  <button
+                    onClick={() => handleCustomMenuClick(cMenu)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-full hover:text-amber-300 hover:bg-slate-800/60 transition-all border border-transparent"
+                  >
+                    <span>{cMenu.label}</span>
+                    {cMenu.badge && (
+                      <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-red-600 text-white font-bold">
+                        {cMenu.badge}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+
+            {/* 7. Canal YouTube */}
             <li>
               <a
                 href={youtubeUrl}
@@ -275,6 +409,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </a>
             </li>
 
+            {/* 8. Sobre Nós */}
             <li>
               <button
                 onClick={onOpenAbout}
@@ -285,7 +420,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </li>
           </ul>
 
-          {/* Search Bar + Controls (Optimized for small screens) */}
+          {/* Search Bar + Controls (Discreet: No public Admin button!) */}
           <div className="flex items-center gap-1.5">
             {/* Desktop / Tablet Search Box */}
             <div className="hidden md:flex relative items-center">
@@ -363,15 +498,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Moon className="w-3.5 h-3.5 text-sky-400" />
               )}
             </button>
-
-            {/* Mobile Hamburger Toggle (Always visible on mobile/tablet) */}
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="xl:hidden w-8 h-8 rounded-full bg-red-600/90 hover:bg-red-500 text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-red-950 transition-colors"
-              aria-label={isMenuOpen ? 'Fechar Menu' : 'Abrir Menu'}
-            >
-              {isMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-            </button>
           </div>
         </div>
 
@@ -405,168 +531,327 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </div>
         )}
+      </nav>
 
-        {/* ========================================================
-            MOBILE MENU DRAWER (Guaranteed to show & fit on phone!)
-        ======================================================== */}
-        {isMenuOpen && (
-          <div className="xl:hidden border-t border-slate-800 bg-slate-950/98 backdrop-blur-2xl px-4 py-4 space-y-3 max-h-[82vh] overflow-y-auto shadow-2xl">
-            <div className="flex flex-col gap-1.5 text-xs font-semibold">
+      {/* ========================================================
+          3. OFF-CANVAS LEFT DRAWER FOR TABLET & MOBILE (When clicking 3 riscos)
+          Discreet: No public Admin buttons here!
+      ======================================================== */}
+      {isMenuOpen && (
+        <div className="xl:hidden fixed inset-0 z-50 flex animate-in fade-in duration-200">
+          {/* Dark Backdrop Overlay */}
+          <div
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity"
+            onClick={() => setIsMenuOpen(false)}
+            aria-hidden="true"
+          />
+
+          {/* Left-Side Drawer Panel */}
+          <div className="relative w-72 sm:w-80 max-w-[85vw] h-full bg-slate-950 border-r border-slate-800 shadow-2xl flex flex-col z-50 overflow-hidden animate-in slide-in-from-left duration-250">
+            {/* Drawer Header */}
+            <div className="p-3.5 sm:p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/70">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-red-600 via-red-700 to-sky-900 flex items-center justify-center shadow-md shadow-red-950/50 border border-red-500/30">
+                  <Music2 className="w-4 h-4 text-amber-200" />
+                </div>
+                <div className="leading-tight">
+                  <span className="text-xs sm:text-sm font-extrabold tracking-tight text-white block">
+                    Melo <span className="text-amber-400">Music</span>
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-medium block">
+                    {t.brand_sub}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsMenuOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 transition-colors"
+                aria-label="Fechar Menu"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Search inside Drawer */}
+            <div className="p-3 border-b border-slate-800/80 bg-slate-900/30">
+              <div className="relative flex items-center">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder={t.search_placeholder}
+                  className="w-full h-8 pl-8 pr-7 text-xs rounded-lg bg-slate-900 text-slate-100 placeholder-slate-400 border border-slate-800 focus:border-red-500 focus:outline-none"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => onSearchChange('')}
+                    className="absolute right-2 text-slate-400 hover:text-white p-1"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Scrollable Navigation Menu (Lateral Esquerda) */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5 text-xs font-semibold">
+              {/* 1. Início */}
               <button
                 onClick={() => {
                   onSelectCategory('Todas');
                   setIsMenuOpen(false);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
-                  activeCategory === 'Todas' && !isAlbumsActive && !isNewsActive
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
+                  activeCategory === 'Todas' && !isAlbumsActive && !isNewsActive && !searchQuery
                     ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
                     : 'text-slate-200 hover:bg-slate-900 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  {activeCategory === 'Todas' && !isAlbumsActive && !isNewsActive && (
+                <div className="flex items-center gap-2.5">
+                  {activeCategory === 'Todas' && !isAlbumsActive && !isNewsActive && !searchQuery && (
                     <span className="w-2 h-2 rounded-full bg-white shadow-sm shadow-white animate-pulse" />
                   )}
+                  <Home className="w-4 h-4 text-amber-400" />
                   <span>{t.home}</span>
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
               </button>
 
-              {/* Mobile Álbum e EP */}
+              {/* 2. Álbum e EP */}
               <button
                 onClick={() => {
                   onOpenAlbumsOnly();
                   setIsMenuOpen(false);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
                   isAlbumsActive
                     ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
                     : 'text-slate-200 hover:bg-slate-900 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   {isAlbumsActive && (
                     <span className="w-2 h-2 rounded-full bg-white shadow-sm shadow-white animate-pulse" />
                   )}
-                  <Disc3 className="w-3.5 h-3.5 text-red-500" />
+                  <Disc3 className="w-4 h-4 text-red-500" />
                   <span>{t.albums_eps}</span>
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
               </button>
 
-              {/* Mobile Instrumentais (Fora das músicas por não ser estilo) */}
+              {/* 3. Instrumentais (Fora das músicas, no topo do menu lateral) */}
               <button
                 onClick={() => {
                   onSelectCategory('Instrumentais');
                   setIsMenuOpen(false);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
                   isInstrumentalsActive
                     ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
                     : 'text-slate-200 hover:bg-slate-900 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   {isInstrumentalsActive && (
                     <span className="w-2 h-2 rounded-full bg-white shadow-sm shadow-white animate-pulse" />
                   )}
-                  <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+                  <SlidersHorizontal className="w-4 h-4 text-amber-400" />
                   <span>{t.instrumentals}</span>
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
               </button>
 
-              {/* Mobile News Hoje */}
+              {/* 4. News Hoje */}
               <button
                 onClick={() => {
                   onOpenNewsOnly();
                   setIsMenuOpen(false);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
+                className={`w-full text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all ${
                   isNewsActive
                     ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
                     : 'text-slate-200 hover:bg-slate-900 border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   {isNewsActive && (
                     <span className="w-2 h-2 rounded-full bg-white shadow-sm shadow-white animate-pulse" />
                   )}
                   <span>{t.news_today}</span>
                 </div>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
               </button>
 
-              {/* Mobile Categories Accordion (Apenas Estilos Musicais, sem Instrumentais duplicado) */}
-              <div className="pt-2 border-t border-slate-800">
+              {/* 5. Dynamic Custom Menus in Drawer */}
+              {visibleCustomMenus.map((cMenu) => {
+                const hasSubmenus = cMenu.type === 'dropdown' && cMenu.submenus && cMenu.submenus.length > 0;
+                const isExpanded = expandedMobileCustomMenuId === cMenu.id;
+
+                if (hasSubmenus) {
+                  return (
+                    <div key={cMenu.id} className="pt-1">
+                      <button
+                        onClick={() =>
+                          setExpandedMobileCustomMenuId(isExpanded ? null : cMenu.id)
+                        }
+                        className="w-full text-left px-3.5 py-2 rounded-xl text-slate-200 hover:bg-slate-900 flex items-center justify-between transition-colors border border-transparent"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>{cMenu.label}</span>
+                          {cMenu.badge && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-red-600 text-white font-bold">
+                              {cMenu.badge}
+                            </span>
+                          )}
+                        </div>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                            isExpanded ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="pl-4 pr-1 py-1 space-y-1">
+                          {cMenu.submenus!.map((sub) => (
+                            <button
+                              key={sub.id}
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                if (sub.type === 'page') {
+                                  if (onOpenCustomPage) {
+                                    onOpenCustomPage(sub.label, sub.pageContent || '', cMenu.badge);
+                                  }
+                                } else if (sub.type === 'category') {
+                                  onSelectCategory(sub.categoryFilter || sub.label);
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                } else if (sub.type === 'link' && sub.url) {
+                                  window.open(sub.url, sub.target || '_blank');
+                                }
+                              }}
+                              className="w-full text-left px-3 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-900/80 transition-colors text-[11px] flex items-center justify-between"
+                            >
+                              <span>{sub.label}</span>
+                              <ChevronRight className="w-3 h-3 text-slate-600" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={cMenu.id}
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      handleCustomMenuClick(cMenu);
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 rounded-xl flex items-center justify-between transition-all text-slate-200 hover:bg-slate-900 border border-transparent"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span>{cMenu.label}</span>
+                      {cMenu.badge && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-red-600 text-white font-bold">
+                          {cMenu.badge}
+                        </span>
+                      )}
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+                );
+              })}
+
+              {/* 6. Estilos Musicais Accordion (sem Instrumentais) */}
+              <div className="pt-2">
                 <button
                   onClick={() => setIsMobileCatsOpen(!isMobileCatsOpen)}
-                  className="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-400"
+                  className="w-full text-left px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between hover:text-slate-200"
                 >
-                  <span>Géneros de Música ({musicStyles.length})</span>
+                  <span>Géneros de Música</span>
                   <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform ${isMobileCatsOpen ? 'rotate-180' : ''}`}
+                    className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                      isMobileCatsOpen ? 'rotate-180' : ''
+                    }`}
                   />
                 </button>
 
                 {isMobileCatsOpen && (
-                  <div className="grid grid-cols-2 gap-1.5 p-2 bg-slate-900/60 rounded-xl mt-1 border border-slate-800">
-                    <button
-                      onClick={() => {
-                        onSelectCategory('Todas');
-                        setIsMenuOpen(false);
-                      }}
-                      className={`text-left text-[11px] px-2.5 py-1.5 rounded-lg truncate ${
-                        activeCategory === 'Todas' ? 'bg-red-600 text-white font-bold' : 'text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      Todas as Músicas
-                    </button>
-                    {musicStyles.map((c) => (
+                  <div className="space-y-1 mt-1 pl-2">
+                    {musicStyles.map((cat) => (
                       <button
-                        key={c}
+                        key={cat}
                         onClick={() => {
-                          onSelectCategory(c);
+                          onSelectCategory(cat);
                           setIsMenuOpen(false);
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
-                        className={`text-left text-[11px] px-2.5 py-1.5 rounded-lg truncate ${
-                          activeCategory === c
-                            ? 'bg-red-600 text-white font-bold'
-                            : 'text-slate-300 hover:bg-slate-800'
+                        className={`w-full text-left px-3 py-1.5 rounded-lg flex items-center justify-between transition-all ${
+                          activeCategory === cat && !isAlbumsActive && !isNewsActive
+                            ? 'bg-red-600 text-white font-bold shadow-md shadow-red-600/30'
+                            : 'text-slate-300 hover:text-amber-300 hover:bg-slate-900'
                         }`}
                       >
-                        {c}
+                        <span>{cat}</span>
+                        {activeCategory === cat && !isAlbumsActive && !isNewsActive && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                        )}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
 
-              {/* YouTube Channel link */}
-              <a
-                href={youtubeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-2 rounded-lg text-red-400 flex items-center justify-between hover:bg-slate-900 transition-colors mt-2"
-              >
-                <span>{t.youtube_channel}</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-
-              {/* Saber Mais */}
+              {/* 7. Sobre Nós */}
               <button
                 onClick={() => {
                   onOpenAbout();
                   setIsMenuOpen(false);
                 }}
-                className="text-left px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-900 transition-colors"
+                className="w-full text-left px-3.5 py-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-900 flex items-center justify-between"
               >
-                {t.about_us}
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 text-sky-400" />
+                  <span>{t.about_us}</span>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
               </button>
+
+              {/* 8. Canal YouTube */}
+              <a
+                href={youtubeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsMenuOpen(false)}
+                className="w-full text-left px-3.5 py-2 rounded-xl text-slate-300 hover:text-red-400 hover:bg-slate-900 flex items-center justify-between"
+              >
+                <span>{t.youtube_channel}</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+              </a>
+            </div>
+
+            {/* Drawer Footer with WhatsApp */}
+            <div className="p-3 border-t border-slate-800/80 bg-slate-900/50">
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>WhatsApp Oficial</span>
+              </a>
             </div>
           </div>
-        )}
-      </nav>
+        </div>
+      )}
     </header>
   );
 };

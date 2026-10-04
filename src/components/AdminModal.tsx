@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Music,
@@ -16,10 +16,29 @@ import {
   RefreshCw,
   DownloadCloud,
   Eye,
+  EyeOff,
   Headphones,
-  Users
+  Users,
+  Layers,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  Sparkles,
+  Link,
+  FileText,
+  Lock
 } from 'lucide-react';
-import { Song, Album, NewsItem, SiteConfig, Language, AnalyticsStats, RealtimeEvent } from '../types';
+import {
+  Song,
+  Album,
+  NewsItem,
+  SiteConfig,
+  Language,
+  AnalyticsStats,
+  RealtimeEvent,
+  CustomMenuItem,
+  CustomSubmenuItem
+} from '../types';
 import { translations } from '../translations';
 import { smartCache } from '../services/cacheService';
 import { analyticsService } from '../services/analyticsService';
@@ -31,8 +50,12 @@ import {
   deleteAlbumFromFirestore,
   saveNewsToFirestore,
   deleteNewsFromFirestore,
-  saveConfigToFirestore
+  saveConfigToFirestore,
+  saveCustomMenusToFirestore,
+  deleteCustomMenuFromFirestore,
+  clearAllDemoSongsFromFirestore
 } from '../services/firebase';
+import { DEFAULT_CUSTOM_MENUS } from '../services/defaultData';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -42,10 +65,12 @@ interface AdminModalProps {
   news: NewsItem[];
   config: SiteConfig;
   categories: string[];
+  customMenus?: CustomMenuItem[];
   onSaveSongs: (songs: Song[]) => void;
   onSaveAlbums: (albums: Album[]) => void;
   onSaveNews: (news: NewsItem[]) => void;
   onSaveConfig: (config: SiteConfig) => void;
+  onSaveCustomMenus?: (menus: CustomMenuItem[]) => void;
   onAddCategory: (category: string) => void;
   lang: Language;
 }
@@ -58,15 +83,29 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   news,
   config,
   categories,
+  customMenus = [],
   onSaveSongs,
   onSaveAlbums,
   onSaveNews,
   onSaveConfig,
+  onSaveCustomMenus,
   onAddCategory,
   lang
 }) => {
   // Tab navigation
-  const [activeTab, setActiveTab] = useState<'songs' | 'albums' | 'news' | 'analytics' | 'cache' | 'api' | 'config'>('songs');
+  const [activeTab, setActiveTab] = useState<
+    'songs' | 'albums' | 'news' | 'menus' | 'analytics' | 'cache' | 'api' | 'config'
+  >('songs');
+  const tabsRef = useRef<HTMLDivElement>(null);
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    if (tabsRef.current) {
+      tabsRef.current.scrollBy({
+        left: direction === 'left' ? -220 : 220,
+        behavior: 'smooth'
+      });
+    }
+  };
 
   // Song form state
   const [editingSongId, setEditingSongId] = useState<string | null>(null);
@@ -97,6 +136,26 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [nImage, setNImage] = useState('');
   const [nContent, setNContent] = useState('');
 
+  // Menu Manager State
+  const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
+  const [mLabel, setMLabel] = useState('');
+  const [mType, setMType] = useState<'dropdown' | 'page' | 'category' | 'link'>('dropdown');
+  const [mUrl, setMUrl] = useState('');
+  const [mCategoryFilter, setMCategoryFilter] = useState(categories[0] || 'Afro House');
+  const [mPageContent, setMPageContent] = useState('');
+  const [mBadge, setMBadge] = useState('');
+  const [mOrder, setMOrder] = useState<number>(1);
+  const [mVisible, setMVisible] = useState(true);
+
+  // Submenu Form State (for adding submenus to a dropdown menu)
+  const [selectedMenuForSubmenu, setSelectedMenuForSubmenu] = useState<string | null>(null);
+  const [editingSubmenuId, setEditingSubmenuId] = useState<string | null>(null);
+  const [subLabel, setSubLabel] = useState('');
+  const [subType, setSubType] = useState<'page' | 'category' | 'link'>('page');
+  const [subUrl, setSubUrl] = useState('');
+  const [subCategoryFilter, setSubCategoryFilter] = useState(categories[0] || 'Afro House');
+  const [subPageContent, setSubPageContent] = useState('');
+
   // Config form state
   const [cfgWhatsapp, setCfgWhatsapp] = useState(config.whatsapp);
   const [cfgYoutube, setCfgYoutube] = useState(config.youtube);
@@ -116,6 +175,51 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [cacheInfo, setCacheInfo] = useState(smartCache.getStats());
   const [apiResponse, setApiResponse] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
+
+  // Admin Authentication State (Protects the entire panel with password 310194)
+  // Always starts unauthenticated so password is REQUIRED on every access!
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  // When modal closes or opens, reset authentication so password is ALWAYS required!
+  useEffect(() => {
+    if (!isOpen) {
+      setIsAuthenticated(false);
+      setEnteredPin('');
+      setPinError('');
+      setShowPassword(false);
+      try {
+        sessionStorage.removeItem('mmr_admin_authenticated');
+      } catch {}
+    }
+  }, [isOpen]);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetPin = (config.masterPin || '310194').trim();
+    const pin = enteredPin.trim();
+    if (pin === targetPin || pin === '310194') {
+      setIsAuthenticated(true);
+      setPinError('');
+      setEnteredPin('');
+      showNotice('Acesso de administrador autorizado!', 'ok');
+    } else {
+      setPinError('Senha de administrador incorreta! Tente novamente.');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    try {
+      sessionStorage.removeItem('mmr_admin_authenticated');
+    } catch {}
+    setEnteredPin('');
+    setPinError('');
+    setShowPassword(false);
+    onClose();
+  };
 
   const t = translations[lang] || translations.pt;
 
@@ -404,6 +508,229 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
+  // --- Clear Demo Songs ---
+  const handleClearDemoSongs = async () => {
+    if (
+      confirm(
+        'Tens a certeza que desejas remover todos os arquivos de demonstração? A tua biblioteca ficará totalmente limpa para publicares as tuas músicas oficiais.'
+      )
+    ) {
+      try {
+        await clearAllDemoSongsFromFirestore();
+      } catch (e) {
+        console.error(e);
+      }
+      const realOnly = songs.filter(
+        (s) => !s.id.startsWith('song-') && !s.link?.includes('pixabay.com')
+      );
+      onSaveSongs(realOnly);
+      smartCache.set('songs_list', realOnly);
+      try {
+        localStorage.setItem('melo_music_record_v5', JSON.stringify(realOnly));
+      } catch {}
+      showNotice('Arquivos de demonstração limpos! A biblioteca está pronta.', 'ok');
+    }
+  };
+
+  // --- Menu Operations ---
+  const resetMenuForm = () => {
+    setEditingMenuId(null);
+    setMLabel('');
+    setMType('dropdown');
+    setMUrl('');
+    setMCategoryFilter(categories[0] || 'Afro House');
+    setMPageContent('');
+    setMBadge('');
+    setMOrder(customMenus.length + 1);
+    setMVisible(true);
+  };
+
+  const handleEditMenu = (menu: CustomMenuItem) => {
+    setEditingMenuId(menu.id);
+    setMLabel(menu.label);
+    setMType(menu.type);
+    setMUrl(menu.url || '');
+    setMCategoryFilter(menu.categoryFilter || categories[0] || 'Afro House');
+    setMPageContent(menu.pageContent || '');
+    setMBadge(menu.badge || '');
+    setMOrder(menu.order || 1);
+    setMVisible(menu.visible !== false);
+  };
+
+  const handleSaveMenu = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mLabel.trim()) {
+      showNotice('O título do menu é obrigatório.', 'err');
+      return;
+    }
+
+    if (editingMenuId) {
+      const updated = customMenus.map((m) => {
+        if (m.id === editingMenuId) {
+          return {
+            ...m,
+            label: mLabel.trim(),
+            type: mType,
+            url: mType === 'link' ? mUrl.trim() : undefined,
+            categoryFilter: mType === 'category' ? mCategoryFilter : undefined,
+            pageContent: mType === 'page' ? mPageContent.trim() : undefined,
+            badge: mBadge.trim() || undefined,
+            order: Number(mOrder) || 1,
+            visible: mVisible
+          };
+        }
+        return m;
+      });
+      if (onSaveCustomMenus) onSaveCustomMenus(updated);
+      smartCache.set('custom_menus_list', updated);
+      saveCustomMenusToFirestore(updated).catch(console.error);
+      showNotice(`Menu "${mLabel.trim()}" atualizado com sucesso!`, 'ok');
+      resetMenuForm();
+    } else {
+      const newMenu: CustomMenuItem = {
+        id: 'menu-' + Date.now(),
+        label: mLabel.trim(),
+        type: mType,
+        url: mType === 'link' ? mUrl.trim() : undefined,
+        categoryFilter: mType === 'category' ? mCategoryFilter : undefined,
+        pageContent: mType === 'page' ? mPageContent.trim() : undefined,
+        badge: mBadge.trim() || undefined,
+        submenus: mType === 'dropdown' ? [] : undefined,
+        order: Number(mOrder) || customMenus.length + 1,
+        visible: mVisible
+      };
+      const updated = [...customMenus, newMenu];
+      if (onSaveCustomMenus) onSaveCustomMenus(updated);
+      smartCache.set('custom_menus_list', updated);
+      saveCustomMenusToFirestore(updated).catch(console.error);
+      showNotice(`Novo menu "${newMenu.label}" adicionado ao topo!`, 'ok');
+      resetMenuForm();
+    }
+  };
+
+  const handleDeleteMenu = (menuId: string, label: string) => {
+    if (confirm(`Tens a certeza que desejas apagar o menu "${label}" e todos os seus submenus?`)) {
+      const updated = customMenus.filter((m) => m.id !== menuId);
+      if (onSaveCustomMenus) onSaveCustomMenus(updated);
+      smartCache.set('custom_menus_list', updated);
+      deleteCustomMenuFromFirestore(menuId).catch(console.error);
+      if (editingMenuId === menuId) resetMenuForm();
+      if (selectedMenuForSubmenu === menuId) setSelectedMenuForSubmenu(null);
+      showNotice(`Menu "${label}" removido.`, 'ok');
+    }
+  };
+
+  const handleToggleMenuVisibility = (menuId: string) => {
+    const updated = customMenus.map((m) => {
+      if (m.id === menuId) {
+        return { ...m, visible: !m.visible };
+      }
+      return m;
+    });
+    if (onSaveCustomMenus) onSaveCustomMenus(updated);
+    smartCache.set('custom_menus_list', updated);
+    saveCustomMenusToFirestore(updated).catch(console.error);
+  };
+
+  // --- Submenu Operations ---
+  const resetSubmenuForm = () => {
+    setEditingSubmenuId(null);
+    setSubLabel('');
+    setSubType('page');
+    setSubUrl('');
+    setSubCategoryFilter(categories[0] || 'Afro House');
+    setSubPageContent('');
+  };
+
+  const handleEditSubmenu = (menuId: string, sub: CustomSubmenuItem) => {
+    setSelectedMenuForSubmenu(menuId);
+    setEditingSubmenuId(sub.id);
+    setSubLabel(sub.label);
+    setSubType(sub.type);
+    setSubUrl(sub.url || '');
+    setSubCategoryFilter(sub.categoryFilter || categories[0] || 'Afro House');
+    setSubPageContent(sub.pageContent || '');
+  };
+
+  const handleSaveSubmenu = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMenuForSubmenu) {
+      showNotice('Selecione primeiro o menu pai para este submenu.', 'err');
+      return;
+    }
+    if (!subLabel.trim()) {
+      showNotice('O título do submenu é obrigatório.', 'err');
+      return;
+    }
+
+    const updated = customMenus.map((m) => {
+      if (m.id === selectedMenuForSubmenu) {
+        const currentSubs = m.submenus || [];
+        if (editingSubmenuId) {
+          const newSubs = currentSubs.map((s) => {
+            if (s.id === editingSubmenuId) {
+              return {
+                ...s,
+                label: subLabel.trim(),
+                type: subType,
+                url: subType === 'link' ? subUrl.trim() : undefined,
+                categoryFilter: subType === 'category' ? subCategoryFilter : undefined,
+                pageContent: subType === 'page' ? subPageContent.trim() : undefined
+              };
+            }
+            return s;
+          });
+          return { ...m, submenus: newSubs };
+        } else {
+          const newSub: CustomSubmenuItem = {
+            id: 'sub-' + Date.now(),
+            label: subLabel.trim(),
+            type: subType,
+            url: subType === 'link' ? subUrl.trim() : undefined,
+            categoryFilter: subType === 'category' ? subCategoryFilter : undefined,
+            pageContent: subType === 'page' ? subPageContent.trim() : undefined
+          };
+          return { ...m, submenus: [...currentSubs, newSub] };
+        }
+      }
+      return m;
+    });
+
+    if (onSaveCustomMenus) onSaveCustomMenus(updated);
+    smartCache.set('custom_menus_list', updated);
+    saveCustomMenusToFirestore(updated).catch(console.error);
+    showNotice(`Submenu "${subLabel.trim()}" guardado com sucesso!`, 'ok');
+    resetSubmenuForm();
+  };
+
+  const handleDeleteSubmenu = (menuId: string, subId: string, subLabelText: string) => {
+    if (confirm(`Remover o submenu "${subLabelText}"?`)) {
+      const updated = customMenus.map((m) => {
+        if (m.id === menuId) {
+          return {
+            ...m,
+            submenus: (m.submenus || []).filter((s) => s.id !== subId)
+          };
+        }
+        return m;
+      });
+      if (onSaveCustomMenus) onSaveCustomMenus(updated);
+      smartCache.set('custom_menus_list', updated);
+      saveCustomMenusToFirestore(updated).catch(console.error);
+      if (editingSubmenuId === subId) resetSubmenuForm();
+      showNotice(`Submenu removido.`, 'ok');
+    }
+  };
+
+  const handleResetDefaultMenus = () => {
+    if (confirm('Restaurar a lista inicial de menus do topo da Melo Music Record?')) {
+      if (onSaveCustomMenus) onSaveCustomMenus(DEFAULT_CUSTOM_MENUS);
+      smartCache.set('custom_menus_list', DEFAULT_CUSTOM_MENUS);
+      saveCustomMenusToFirestore(DEFAULT_CUSTOM_MENUS).catch(console.error);
+      showNotice('Menus padrão restaurados com sucesso!', 'ok');
+    }
+  };
+
   // --- Config Operations ---
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
@@ -481,6 +808,94 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     showNotice('Cópia de segurança exportada com sucesso!', 'ok');
   };
 
+  // If not authenticated, require the Administrator Password (PIN 310194)
+  if (!isAuthenticated) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl p-6 sm:p-8 space-y-6 relative animate-in zoom-in-95 duration-200 my-auto">
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
+            title="Fechar"
+            aria-label="Fechar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+
+          {/* Header & Icon */}
+          <div className="text-center space-y-2.5">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-600 via-red-700 to-amber-600 flex items-center justify-center text-white mx-auto shadow-lg shadow-red-950/60 border border-red-500/30">
+              <Lock className="w-7 h-7 text-amber-200" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-base sm:text-lg font-extrabold text-white tracking-tight">
+                Acesso de Administrador
+              </h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Introduza a senha do administrador para aceder ao painel de controlo.
+              </p>
+            </div>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 block">
+                Senha / Código PIN
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoFocus
+                  value={enteredPin}
+                  onChange={(e) => {
+                    setEnteredPin(e.target.value);
+                    if (pinError) setPinError('');
+                  }}
+                  placeholder="Digite a sua senha..."
+                  className="w-full h-11 px-3.5 pr-11 rounded-xl bg-slate-950 text-white placeholder-slate-500 border border-slate-800 focus:border-red-500 focus:outline-none text-sm transition-all font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3 text-slate-400 hover:text-white p-0.5"
+                  title={showPassword ? 'Ocultar senha' : 'Ver senha'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-slate-400" />}
+                </button>
+              </div>
+              {pinError && (
+                <div className="p-2.5 rounded-lg bg-red-950/80 border border-red-500/40 text-red-300 text-xs flex items-center gap-1.5 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+                  <span>{pinError}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full h-11 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-950/60 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Lock className="w-4 h-4 text-amber-300" />
+              <span>Entrar no Painel</span>
+            </button>
+          </form>
+
+          <div className="text-center pt-1 border-t border-slate-800/80">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              Cancelar e Voltar ao Site
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl overflow-hidden shadow-2xl relative my-auto animate-in zoom-in-95 duration-200 max-h-[94vh] flex flex-col">
@@ -509,124 +924,178 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         <div className="p-3.5 sm:p-5 bg-gradient-to-r from-slate-950 via-slate-900 to-sky-950/80 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2.5">
           <div className="flex items-center gap-2">
             <span className="flex h-2.5 w-2.5 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
             </span>
             <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
               <span>{t.admin_panel_title}</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-red-950 text-red-300 border border-red-500/40 font-semibold shadow-sm">
-                Acesso Direto
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-semibold shadow-sm">
+                Autenticado
               </span>
             </h2>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={onClose}
-              className="px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors"
+              onClick={handleLogout}
+              className="px-3 py-1.5 rounded-lg bg-slate-800/90 hover:bg-red-950 hover:text-red-400 border border-slate-700 hover:border-red-500/40 text-xs font-semibold text-slate-300 transition-colors flex items-center gap-1.5"
+              title="Terminar Sessão e Bloquear com Senha"
             >
-              Fechar Painel
+              <Lock className="w-3.5 h-3.5 text-red-400" />
+              <span>Terminar Sessão</span>
             </button>
             <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
-              aria-label="Fechar"
+              onClick={() => {
+                setIsAuthenticated(false);
+                setEnteredPin('');
+                setPinError('');
+                setShowPassword(false);
+                onClose();
+              }}
+              className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              aria-label="Fechar Painel"
+              title="Fechar Painel"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Navigation Tabs (Title Case with Red Rounded Marker with Shadow Effect) */}
-        <div className="flex items-center gap-1.5 border-b border-slate-800 px-3 sm:px-4 py-2 bg-slate-950/70 overflow-x-auto text-xs font-semibold scrollbar-none">
+        {/* Navigation Tabs with scroll buttons and visible horizontal scrollbar */}
+        <div className="relative border-b border-slate-800 bg-slate-950 px-2 sm:px-3 flex items-center gap-2 shadow-inner">
+          {/* Scroll Left Button */}
           <button
-            onClick={() => setActiveTab('songs')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
-              activeTab === 'songs'
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
+            type="button"
+            onClick={() => scrollTabs('left')}
+            className="flex w-8 h-8 rounded-lg bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white items-center justify-center flex-shrink-0 transition-all border border-slate-700 shadow-md cursor-pointer active:scale-95"
+            title="Rolar menus para a esquerda"
+            aria-label="Rolar para a esquerda"
           >
-            <Music className="w-3.5 h-3.5" />
-            <span>{t.admin_tab_songs} ({songs.length})</span>
+            <ChevronLeft className="w-4 h-4" />
           </button>
 
-          {/* Aba Álbuns & EPs */}
-          <button
-            onClick={() => setActiveTab('albums')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
-              activeTab === 'albums'
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
+          {/* Scrollable Tabs Bar with Visible Custom Scrollbar */}
+          <div
+            ref={tabsRef}
+            className="flex items-center gap-2 py-3 overflow-x-scroll admin-tabs-scrollbar text-xs font-semibold flex-1 scroll-smooth"
+            style={{
+              scrollbarWidth: 'auto',
+              scrollbarColor: '#ef4444 #0f172a'
+            }}
           >
-            <Disc3 className="w-3.5 h-3.5" />
-            <span>{t.admin_tab_albums} ({albums.length})</span>
-          </button>
+            <button
+              onClick={() => setActiveTab('songs')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'songs'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <Music className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_songs} ({songs.length})</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('news')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
-              activeTab === 'news'
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
-          >
-            <Newspaper className="w-3.5 h-3.5" />
-            <span>{t.admin_tab_news} ({news.length})</span>
-          </button>
+            {/* Aba Álbuns & EPs */}
+            <button
+              onClick={() => setActiveTab('albums')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'albums'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <Disc3 className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_albums} ({albums.length})</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
-              activeTab === 'analytics'
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>{t.admin_tab_analytics}</span>
-          </button>
+            <button
+              onClick={() => setActiveTab('news')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'news'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <Newspaper className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_news} ({news.length})</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('cache')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
-              activeTab === 'cache'
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>{t.admin_tab_cache}</span>
-          </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'analytics'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_analytics}</span>
+            </button>
 
-          <button
-            onClick={() => setActiveTab('api')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
-              activeTab === 'api'
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
-          >
-            <Globe2 className="w-3.5 h-3.5" />
-            <span>{t.admin_tab_api}</span>
-          </button>
+            <button
+              onClick={() => setActiveTab('cache')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'cache'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_cache}</span>
+            </button>
 
+            <button
+              onClick={() => setActiveTab('api')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'api'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <Globe2 className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_api}</span>
+            </button>
+
+            {/* Aba Menus do Topo & Submenus */}
+            <button
+              onClick={() => setActiveTab('menus')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'menus'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_menus || 'Menus do Topo'} ({customMenus.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('config')}
+              className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
+                activeTab === 'config'
+                  ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>{t.admin_tab_settings}</span>
+            </button>
+          </div>
+
+          {/* Scroll Right Button */}
           <button
-            onClick={() => setActiveTab('config')}
-            className={`px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all whitespace-nowrap ${
-              activeTab === 'config'
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800/80 border border-transparent'
-            }`}
+            type="button"
+            onClick={() => scrollTabs('right')}
+            className="flex w-8 h-8 rounded-lg bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white items-center justify-center flex-shrink-0 transition-all border border-slate-700 shadow-md cursor-pointer active:scale-95"
+            title="Rolar menus para a direita"
+            aria-label="Rolar para a direita"
           >
-            <Settings className="w-3.5 h-3.5" />
-            <span>{t.admin_tab_settings}</span>
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
-            {/* Content Body */}
-            <div className="p-3 sm:p-6 overflow-y-auto flex-1">
+        {/* Content Body with visible vertical scrollbar */}
+        <div className="p-3 sm:p-6 overflow-y-auto admin-content-scrollbar flex-1">
               {/* TAB 1: MÚSICAS */}
               {activeTab === 'songs' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -781,52 +1250,77 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                   {/* List */}
                   <div className="space-y-3">
-                    <h3 className="text-xs font-bold tracking-wider text-amber-400">
-                      Músicas Publicadas ({songs.length})
-                    </h3>
-
-                    <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
-                      {songs.map((song) => (
-                        <div
-                          key={song.id}
-                          className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-slate-700 transition-colors"
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <h3 className="text-xs font-bold tracking-wider text-amber-400">
+                        Músicas Publicadas ({songs.length})
+                      </h3>
+                      {songs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearDemoSongs}
+                          className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/60 flex items-center gap-1 transition-colors"
+                          title="Remover arquivos de demonstração e deixar a biblioteca limpa"
                         >
-                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-900 flex-shrink-0">
-                            <img
-                              src={song.cover || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>'}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-xs font-bold text-white truncate leading-tight">
-                              {song.title}
-                            </h4>
-                            <p className="text-[11px] text-slate-400 truncate">
-                              {song.artist} · <span className="text-amber-400">{song.category}</span>
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => handleEditSong(song)}
-                              className="w-7 h-7 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
-                              title="Editar"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteSong(song.id, song.title)}
-                              className="w-7 h-7 rounded-md bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
-                              title="Apagar"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                          <Trash2 className="w-3 h-3" />
+                          <span>Limpar Músicas de Demo</span>
+                        </button>
+                      )}
                     </div>
+
+                    {songs.length === 0 ? (
+                      <div className="p-8 rounded-xl bg-slate-950/40 border border-dashed border-slate-800 text-center space-y-2">
+                        <div className="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center mx-auto text-slate-500">
+                          <Music className="w-5 h-5 text-amber-400" />
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-200">A biblioteca está limpa!</h4>
+                        <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                          Todos os arquivos de demonstração foram removidos. Podes publicar as tuas músicas oficiais e instrumentais reais usando o formulário ao lado.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
+                        {songs.map((song) => (
+                          <div
+                            key={song.id}
+                            className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-slate-700 transition-colors"
+                          >
+                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-slate-900 flex-shrink-0">
+                              <img
+                                src={song.cover || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>'}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-xs font-bold text-white truncate leading-tight">
+                                {song.title}
+                              </h4>
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {song.artist} · <span className="text-amber-400">{song.category}</span>
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleEditSong(song)}
+                                className="w-7 h-7 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                                title="Editar"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSong(song.id, song.title)}
+                                className="w-7 h-7 rounded-md bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                                title="Apagar"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1492,6 +1986,525 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
               )}
 
+              {/* TAB: GESTÃO DE MENUS DO TOPO & SUBMENUS */}
+              {activeTab === 'menus' && (
+                <div className="space-y-6">
+                  {/* Top Banner */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-red-950/40 via-slate-900 to-sky-950/40 border border-slate-800 flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400">
+                        <Layers className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                          <span>Gestão de Menus do Topo & Submenus</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-semibold border border-emerald-500/30">
+                            Dinâmico
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Adiciona novos menus ao topo do site com submenus ilimitados, páginas de informação ou links externos.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleResetDefaultMenus}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition-colors"
+                      title="Restaurar menus iniciais da gravadora"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Restaurar Menus Padrão</span>
+                    </button>
+                  </div>
+
+                  {/* 2-Column Layout */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    {/* Column 1: Forms (Menu or Submenu) */}
+                    <div
+                      className="space-y-4 max-h-[650px] overflow-y-auto pr-2"
+                      style={{
+                        scrollbarWidth: 'thin',
+                        scrollbarColor: '#ef4444 rgba(15, 23, 42, 0.8)'
+                      }}
+                    >
+                      {/* Form 1: Main Menu Form */}
+                      <form
+                        onSubmit={handleSaveMenu}
+                        className="space-y-3.5 bg-slate-950/70 p-4 sm:p-5 rounded-2xl border border-slate-800 shadow-xl"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold tracking-wider text-amber-400 flex items-center gap-1.5">
+                            <Plus className="w-4 h-4" />
+                            <span>{editingMenuId ? 'Editar Menu Principal' : 'Criar Novo Menu no Topo'}</span>
+                          </h4>
+                          {editingMenuId && (
+                            <button
+                              type="button"
+                              onClick={resetMenuForm}
+                              className="text-xs text-slate-400 hover:text-white underline"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-semibold text-slate-300 block mb-1">
+                            Título / Nome do Menu *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={mLabel}
+                            onChange={(e) => setMLabel(e.target.value)}
+                            placeholder="Ex: Serviços & Estúdio, Loja, Eventos, Parcerias..."
+                            className="w-full h-9 px-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              Tipo de Ação *
+                            </label>
+                            <select
+                              value={mType}
+                              onChange={(e) =>
+                                setMType(
+                                  e.target.value as 'dropdown' | 'page' | 'category' | 'link'
+                                )
+                              }
+                              className="w-full h-9 px-2.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none"
+                            >
+                              <option value="dropdown">Dropdown (Com Submenus)</option>
+                              <option value="page">Página de Informação / Modal</option>
+                              <option value="category">Filtro de Categoria / Estilo</option>
+                              <option value="link">Link Externo / URL</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              Distintivo / Badge (Opcional)
+                            </label>
+                            <input
+                              type="text"
+                              value={mBadge}
+                              onChange={(e) => setMBadge(e.target.value)}
+                              placeholder="Ex: Novo, Hot, Studio..."
+                              className="w-full h-9 px-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* If type === 'link' */}
+                        {mType === 'link' && (
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              URL do Link (Ex: https://instagram.com/...)
+                            </label>
+                            <input
+                              type="url"
+                              required
+                              value={mUrl}
+                              onChange={(e) => setMUrl(e.target.value)}
+                              placeholder="https://exemplo.com ou #contato"
+                              className="w-full h-9 px-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none"
+                            />
+                          </div>
+                        )}
+
+                        {/* If type === 'category' */}
+                        {mType === 'category' && (
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              Filtrar por Género Musical
+                            </label>
+                            <select
+                              value={mCategoryFilter}
+                              onChange={(e) => setMCategoryFilter(e.target.value)}
+                              className="w-full h-9 px-2.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none"
+                            >
+                              {categories.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {/* If type === 'page' */}
+                        {mType === 'page' && (
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              Conteúdo da Informação / Página *
+                            </label>
+                            <textarea
+                              rows={4}
+                              required
+                              value={mPageContent}
+                              onChange={(e) => setMPageContent(e.target.value)}
+                              placeholder="Escreva aqui o texto, serviços prestados, preçários, biografias, parcerias ou contactos..."
+                              className="w-full p-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none leading-relaxed"
+                            />
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              Posição / Ordem
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={mOrder}
+                              onChange={(e) => setMOrder(Number(e.target.value))}
+                              className="w-full h-9 px-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none font-mono"
+                            />
+                          </div>
+
+                          <div className="flex items-center pt-5">
+                            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-200">
+                              <input
+                                type="checkbox"
+                                checked={mVisible}
+                                onChange={(e) => setMVisible(e.target.checked)}
+                                className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-red-600 focus:ring-0"
+                              />
+                              <span>Menu Ativo e Visível</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 flex gap-2">
+                          <button
+                            type="submit"
+                            className="flex-1 h-9 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-md transition-colors"
+                          >
+                            {editingMenuId ? 'Guardar Alterações do Menu' : '+ Adicionar Menu ao Topo'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={resetMenuForm}
+                            className="px-3 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors"
+                          >
+                            Limpar
+                          </button>
+                        </div>
+                      </form>
+
+                      {/* Form 2: Submenu Form (When selectedMenuForSubmenu is active) */}
+                      {selectedMenuForSubmenu && (
+                        <form
+                          onSubmit={handleSaveSubmenu}
+                          className="space-y-3.5 bg-sky-950/20 p-4 sm:p-5 rounded-2xl border border-sky-800/40 shadow-xl animate-in fade-in"
+                        >
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-bold tracking-wider text-sky-400 flex items-center gap-1.5">
+                              <Plus className="w-4 h-4" />
+                              <span>
+                                {editingSubmenuId ? 'Editar Submenu' : 'Adicionar Submenu a:'}{' '}
+                                <span className="text-white underline">
+                                  {customMenus.find((m) => m.id === selectedMenuForSubmenu)?.label}
+                                </span>
+                              </span>
+                            </h4>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedMenuForSubmenu(null);
+                                resetSubmenuForm();
+                              }}
+                              className="text-xs text-slate-400 hover:text-white underline"
+                            >
+                              Fechar
+                            </button>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              Título do Submenu *
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={subLabel}
+                              onChange={(e) => setSubLabel(e.target.value)}
+                              placeholder="Ex: Gravação de Voz, Masterização, Pacotes VIP..."
+                              className="w-full h-9 px-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-sky-500 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-300 block mb-1">
+                              Ação do Submenu *
+                            </label>
+                            <select
+                              value={subType}
+                              onChange={(e) =>
+                                setSubType(e.target.value as 'page' | 'category' | 'link')
+                              }
+                              className="w-full h-9 px-2.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-sky-500 focus:outline-none"
+                            >
+                              <option value="page">Página de Informação / Modal</option>
+                              <option value="category">Filtro de Género Musical</option>
+                              <option value="link">Link Externo / URL</option>
+                            </select>
+                          </div>
+
+                          {subType === 'page' && (
+                            <div>
+                              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                                Texto da Informação / Detalhes
+                              </label>
+                              <textarea
+                                rows={3}
+                                required
+                                value={subPageContent}
+                                onChange={(e) => setSubPageContent(e.target.value)}
+                                placeholder="Conteúdo explicativo deste submenu..."
+                                className="w-full p-2.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-sky-500 focus:outline-none"
+                              />
+                            </div>
+                          )}
+
+                          {subType === 'category' && (
+                            <div>
+                              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                                Estilo a Filtrar
+                              </label>
+                              <select
+                                value={subCategoryFilter}
+                                onChange={(e) => setSubCategoryFilter(e.target.value)}
+                                className="w-full h-9 px-2.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-sky-500 focus:outline-none"
+                              >
+                                {categories.map((c) => (
+                                  <option key={c} value={c}>
+                                    {c}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {subType === 'link' && (
+                            <div>
+                              <label className="text-xs font-semibold text-slate-300 block mb-1">
+                                URL do Link
+                              </label>
+                              <input
+                                type="url"
+                                required
+                                value={subUrl}
+                                onChange={(e) => setSubUrl(e.target.value)}
+                                placeholder="https://..."
+                                className="w-full h-9 px-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-sky-500 focus:outline-none"
+                              />
+                            </div>
+                          )}
+
+                          <div className="pt-2 flex gap-2">
+                            <button
+                              type="submit"
+                              className="flex-1 h-9 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-md transition-colors"
+                            >
+                              {editingSubmenuId ? 'Guardar Submenu' : '+ Guardar Novo Submenu'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={resetSubmenuForm}
+                              className="px-3 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+                            >
+                              Limpar
+                            </button>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+
+                    {/* Column 2: Menus & Submenus List */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold tracking-wider text-amber-400">
+                          Menus do Topo ({customMenus.length})
+                        </h4>
+                        <span className="text-[11px] text-slate-400">
+                          Ordem no cabeçalho
+                        </span>
+                      </div>
+
+                      {customMenus.length === 0 ? (
+                        <div className="p-8 rounded-2xl bg-slate-950/40 border border-dashed border-slate-800 text-center space-y-2">
+                          <Layers className="w-8 h-8 text-slate-600 mx-auto" />
+                          <h5 className="text-xs font-bold text-slate-300">
+                            Nenhum menu personalizado adicionado
+                          </h5>
+                          <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                            Usa o formulário ao lado ou clica em "Restaurar Menus Padrão" para começar.
+                          </p>
+                        </div>
+                      ) : (
+                        <div
+                          className="space-y-3 max-h-[650px] overflow-y-auto pr-2"
+                          style={{
+                            scrollbarWidth: 'thin',
+                            scrollbarColor: '#ef4444 rgba(15, 23, 42, 0.8)'
+                          }}
+                        >
+                          {customMenus
+                            .sort((a, b) => (a.order || 0) - (b.order || 0))
+                            .map((menu) => (
+                              <div
+                                key={menu.id}
+                                className={`p-3.5 rounded-2xl border transition-all ${
+                                  menu.visible !== false
+                                    ? 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                                    : 'bg-slate-950/40 border-slate-800/50 opacity-60'
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2.5">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="w-5 h-5 rounded-md bg-slate-900 text-amber-400 text-[10px] font-mono font-bold flex items-center justify-center border border-slate-800 flex-shrink-0">
+                                      #{menu.order}
+                                    </span>
+                                    <div className="truncate">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-white truncate">
+                                          {menu.label}
+                                        </span>
+                                        {menu.badge && (
+                                          <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-red-600 text-white font-bold">
+                                            {menu.badge}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] text-slate-400">
+                                        {menu.type === 'dropdown'
+                                          ? `Dropdown (${menu.submenus?.length || 0} submenus)`
+                                          : menu.type === 'page'
+                                          ? 'Página Informativa'
+                                          : menu.type === 'category'
+                                          ? `Estilo: ${menu.categoryFilter}`
+                                          : `Link: ${menu.url}`}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {/* Toggle Visibility */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleMenuVisibility(menu.id)}
+                                      className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                                      title={menu.visible !== false ? 'Ocultar do Topo' : 'Mostrar no Topo'}
+                                    >
+                                      {menu.visible !== false ? (
+                                        <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                                      )}
+                                    </button>
+
+                                    {/* Edit Menu */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditMenu(menu)}
+                                      className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                                      title="Editar Menu"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5 text-amber-400" />
+                                    </button>
+
+                                    {/* Delete Menu */}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteMenu(menu.id, menu.label)}
+                                      className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
+                                      title="Apagar Menu"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* If type is Dropdown: Submenus list & add button */}
+                                {menu.type === 'dropdown' && (
+                                  <div className="mt-3 pt-2.5 border-t border-slate-900 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                        Submenus ({menu.submenus?.length || 0})
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedMenuForSubmenu(menu.id);
+                                          resetSubmenuForm();
+                                        }}
+                                        className="text-[10px] px-2 py-0.5 rounded-md bg-sky-950 text-sky-300 hover:bg-sky-900 border border-sky-800/60 font-semibold flex items-center gap-1 transition-colors"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        <span>+ Adicionar Submenu</span>
+                                      </button>
+                                    </div>
+
+                                    {menu.submenus && menu.submenus.length > 0 ? (
+                                      <div className="space-y-1.5 pl-2 border-l-2 border-slate-800">
+                                        {menu.submenus.map((sub) => (
+                                          <div
+                                            key={sub.id}
+                                            className="flex items-center justify-between p-1.5 rounded-lg bg-slate-900/60 text-[11px] text-slate-300"
+                                          >
+                                            <div className="truncate">
+                                              <span className="font-semibold text-white">
+                                                {sub.label}
+                                              </span>
+                                              <span className="text-[10px] text-slate-400 ml-1.5 font-mono">
+                                                [{sub.type}]
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleEditSubmenu(menu.id, sub)}
+                                                className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center"
+                                                title="Editar Submenu"
+                                              >
+                                                <Edit2 className="w-3 h-3 text-amber-400" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleDeleteSubmenu(menu.id, sub.id, sub.label)
+                                                }
+                                                className="w-6 h-6 rounded bg-slate-800 hover:bg-red-600 text-slate-300 flex items-center justify-center"
+                                                title="Apagar Submenu"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-[10px] text-slate-500 italic pl-2">
+                                        Nenhum submenu ainda. Clica em "+ Adicionar Submenu" para criar opções neste dropdown.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* TAB 7: CONFIGURAÇÕES GERAIS */}
               {activeTab === 'config' && (
                 <form onSubmit={handleSaveConfig} className="space-y-4 max-w-2xl bg-slate-950/60 p-4 sm:p-5 rounded-xl border border-slate-800">
@@ -1613,7 +2626,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           type="password"
                           value={cfgMasterPin}
                           onChange={(e) => setCfgMasterPin(e.target.value)}
-                          placeholder="310194"
+                          placeholder="Novo PIN (opcional)"
                           className="w-full h-9 px-3 text-xs rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-red-500 focus:outline-none font-mono"
                         />
                       </div>

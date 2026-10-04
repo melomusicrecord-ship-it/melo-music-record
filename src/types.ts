@@ -84,3 +84,27 @@ export interface AnalyticsStats {
   geoDistribution: { country: string; flag: string; count: number }[];
   deviceDistribution: { device: string; percentage: number }[];
 }
+
+export interface CustomSubmenuItem {
+  id: string;
+  label: string;
+  type: 'category' | 'link' | 'page';
+  url?: string;
+  categoryFilter?: string;
+  pageContent?: string;
+  target?: '_self' | '_blank';
+}
+
+export interface CustomMenuItem {
+  id: string;
+  label: string;
+  type: 'dropdown' | 'category' | 'link' | 'page';
+  url?: string;
+  categoryFilter?: string;
+  pageContent?: string;
+  target?: '_self' | '_blank';
+  badge?: string;
+  submenus?: CustomSubmenuItem[];
+  order: number;
+  visible: boolean;
+}

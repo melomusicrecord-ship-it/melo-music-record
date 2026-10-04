@@ -3,11 +3,6 @@ import {
   Share2,
   Trophy,
   Play,
-  Disc3,
-  Music,
-  SlidersHorizontal,
-  FolderOpen,
-  ChevronRight,
   Facebook,
   Twitter,
   Instagram,
@@ -22,11 +17,11 @@ interface SidebarProps {
   config: SiteConfig;
   top10Songs: Song[];
   onSelectSong: (song: Song) => void;
-  categories: string[];
-  activeCategory: string;
-  onSelectCategory: (cat: string) => void;
-  onOpenAlbumsOnly: () => void;
-  isAlbumsActive: boolean;
+  categories?: string[];
+  activeCategory?: string;
+  onSelectCategory?: (cat: string) => void;
+  onOpenAlbumsOnly?: () => void;
+  isAlbumsActive?: boolean;
   categoryCounts?: Record<string, number>;
   totalAlbumsCount?: number;
   totalSongsCount?: number;
@@ -37,14 +32,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   config,
   top10Songs,
   onSelectSong,
-  categories,
-  activeCategory,
-  onSelectCategory,
-  onOpenAlbumsOnly,
-  isAlbumsActive,
-  categoryCounts = {},
-  totalAlbumsCount = 0,
-  totalSongsCount = 0,
   lang
 }) => {
   const t = translations[lang] || translations.pt;
@@ -180,145 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Widget 3: CATEGORIAS & ESTILOS DE MÚSICA (Posicionado no lado direito logo após o Top 10) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-        <div className="bg-gradient-to-r from-sky-950 via-slate-900 to-slate-900 px-3.5 py-2 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
-            <h3 className="text-xs font-bold tracking-wider text-white">
-              Estilos & Categorias
-            </h3>
-          </div>
-          <span className="text-[10px] text-slate-400">
-            {categories.length + 2} opções
-          </span>
-        </div>
-
-        <div className="p-2 space-y-1">
-          {/* Todas as Músicas */}
-          <button
-            onClick={() => onSelectCategory('Todas')}
-            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
-              activeCategory === 'Todas' && !isAlbumsActive
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30 scale-[1.02]'
-                : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {activeCategory === 'Todas' && !isAlbumsActive ? (
-                <span className="w-2 h-2 rounded-full bg-white shadow-sm shadow-white animate-pulse" />
-              ) : (
-                <Music className="w-3.5 h-3.5 text-amber-400" />
-              )}
-              <span>Todas as Músicas</span>
-            </div>
-            {totalSongsCount > 0 && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
-                activeCategory === 'Todas' && !isAlbumsActive
-                  ? 'bg-red-800/90 text-white font-bold'
-                  : 'bg-slate-800 text-slate-400'
-              }`}>
-                {totalSongsCount}
-              </span>
-            )}
-          </button>
-
-          {/* Álbum e EP */}
-          <button
-            onClick={onOpenAlbumsOnly}
-            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
-              isAlbumsActive
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30 scale-[1.02]'
-                : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {isAlbumsActive ? (
-                <span className="w-2 h-2 rounded-full bg-white shadow-sm shadow-white animate-pulse" />
-              ) : (
-                <Disc3 className="w-3.5 h-3.5 text-red-500" />
-              )}
-              <span>Álbum e EP</span>
-            </div>
-            {totalAlbumsCount > 0 && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
-                isAlbumsActive
-                  ? 'bg-red-800/90 text-white font-bold'
-                  : 'bg-slate-800 text-slate-400'
-              }`}>
-                {totalAlbumsCount}
-              </span>
-            )}
-          </button>
-
-          {/* Instrumentais (Fora das músicas e estilos) */}
-          <button
-            onClick={() => onSelectCategory('Instrumentais')}
-            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
-              activeCategory === 'Instrumentais' && !isAlbumsActive
-                ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30 scale-[1.02]'
-                : 'text-slate-300 hover:bg-slate-800/80 hover:text-white border border-transparent'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {activeCategory === 'Instrumentais' && !isAlbumsActive ? (
-                <span className="w-2 h-2 rounded-full bg-white shadow-sm shadow-white animate-pulse" />
-              ) : (
-                <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
-              )}
-              <span>Instrumentais</span>
-            </div>
-            {categoryCounts && (categoryCounts['Instrumentais'] || 0) > 0 && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
-                activeCategory === 'Instrumentais' && !isAlbumsActive
-                  ? 'bg-red-800/90 text-white font-bold'
-                  : 'bg-slate-800 text-slate-400'
-              }`}>
-                {categoryCounts['Instrumentais']}
-              </span>
-            )}
-          </button>
-
-          <div className="h-px bg-slate-800/80 my-1"></div>
-
-          {/* Lista de Categorias / Estilos Musicais (Sem duplicar Instrumentais) */}
-          <div className="space-y-1">
-            {categories
-              .filter((cat) => cat.toLowerCase() !== 'instrumentais')
-              .map((cat) => {
-              const count = categoryCounts[cat] || 0;
-              const isActive = activeCategory === cat && !isAlbumsActive;
-
-              return (
-                <button
-                  key={cat}
-                  onClick={() => onSelectCategory(cat)}
-                  className={`w-full text-left px-3 py-1.5 rounded-xl text-[11px] font-medium flex items-center justify-between transition-all ${
-                    isActive
-                      ? 'bg-red-600 text-white font-bold shadow-lg shadow-red-600/40 border border-red-500 ring-2 ring-red-400/30 scale-[1.02]'
-                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-amber-300 border border-transparent'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    <span className={`w-2 h-2 rounded-full transition-all ${isActive ? 'bg-white shadow-sm shadow-white animate-pulse' : 'bg-slate-600'}`}></span>
-                    <span className="truncate">{cat}</span>
-                  </div>
-
-                  {count > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                      isActive ? 'bg-red-800/90 text-white font-bold' : 'bg-slate-800 text-slate-400'
-                    }`}>
-                      {count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Widget 4: Newsletter VIP */}
+      {/* Widget 3: Newsletter VIP */}
       <NewsletterWidget lang={lang} />
     </aside>
   );

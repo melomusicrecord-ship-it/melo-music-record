@@ -11,8 +11,8 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Song, Album, NewsItem, SiteConfig, Subscriber } from '../types';
-import { getDemoSongs, getDemoAlbums, getDemoNews, DEFAULT_CONFIG } from './defaultData';
+import { Song, Album, NewsItem, SiteConfig, Subscriber, CustomMenuItem } from '../types';
+import { getDemoSongs, getDemoAlbums, getDemoNews, DEFAULT_CONFIG, DEFAULT_CUSTOM_MENUS } from './defaultData';
 
 const app = initializeApp(firebaseConfig);
 
@@ -48,8 +48,21 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errorCode = (error as { code?: string })?.code;
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  const isOfflineOrUnavailable =
+    errorMsg.includes('unavailable') ||
+    errorMsg.includes('offline') ||
+    errorMsg.includes('Could not reach Cloud Firestore backend') ||
+    errorCode === 'unavailable';
+
+  if (isOfflineOrUnavailable) {
+    console.info(`Firestore [${operationType}] at ${path}: Operando em modo offline / cache local.`);
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -65,8 +78,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.warn('Firestore Error Info: ', JSON.stringify(errInfo));
 }
 
 // Connection test
@@ -74,9 +86,18 @@ export async function testFirestoreConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore: cliente em modo offline ou a inicializar.');
+    const msg = error instanceof Error ? error.message : String(error);
+    const code = (error as { code?: string })?.code;
+    if (
+      msg.includes('the client is offline') ||
+      msg.includes('unavailable') ||
+      msg.includes('Could not reach Cloud Firestore backend') ||
+      code === 'unavailable'
+    ) {
+      console.info('Firestore: Inicializado e a operar em modo offline / cache.');
+      return;
     }
+    console.warn('Firestore connection notice:', msg);
   }
 }
 
@@ -90,14 +111,11 @@ export async function getSongsFromFirestore(): Promise<Song[]> {
   try {
     const snap = await getDocs(collection(db, path));
     if (snap.empty) {
-      // Seed default songs to Firestore
-      const initial = getDemoSongs();
-      for (const s of initial) {
-        await setDoc(doc(db, path, s.id), s);
-      }
-      return initial;
+      return [];
     }
-    return snap.docs.map((d) => d.data() as Song);
+    const all = snap.docs.map((d) => d.data() as Song);
+    // Filter out old demo tracks so real songs take precedence
+    return all.filter((s) => !s.id?.startsWith('song-') && !s.link?.includes('pixabay.com'));
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
     return [];
@@ -237,4 +255,58 @@ export async function saveSubscriberToFirestore(email: string): Promise<void> {
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+// --- Dynamic Top Menus & Submenus ---
+export async function getCustomMenusFromFirestore(): Promise<CustomMenuItem[]> {
+  const path = 'custom_menus';
+  try {
+    const snap = await getDocs(collection(db, path));
+    if (snap.empty) {
+      return DEFAULT_CUSTOM_MENUS;
+    }
+    const items = snap.docs.map((d) => d.data() as CustomMenuItem);
+    return items.sort((a, b) => (a.order || 0) - (b.order || 0));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+    return DEFAULT_CUSTOM_MENUS;
+  }
+}
+
+export async function saveCustomMenusToFirestore(menus: CustomMenuItem[]): Promise<void> {
+  const path = 'custom_menus';
+  try {
+    for (const m of menus) {
+      await setDoc(doc(db, path, m.id), m);
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function deleteCustomMenuFromFirestore(menuId: string): Promise<void> {
+  const path = `custom_menus/${menuId}`;
+  try {
+    await deleteDoc(doc(db, 'custom_menus', menuId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// Helper to remove any demo songs that were previously saved to Firestore
+export async function clearAllDemoSongsFromFirestore(): Promise<number> {
+  let clearedCount = 0;
+  try {
+    const snap = await getDocs(collection(db, 'songs'));
+    for (const d of snap.docs) {
+      const data = d.data() as Song;
+      if (d.id.startsWith('song-') || (data.link && data.link.includes('pixabay.com'))) {
+        await deleteDoc(doc(db, 'songs', d.id));
+        clearedCount++;
+      }
+    }
+  } catch (e) {
+    console.warn('Notice when clearing demo songs:', e);
+  }
+  return clearedCount;
 }
